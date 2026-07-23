@@ -18,3 +18,7 @@ npm run build
 ```
 
 The generated `dist` directory can be deployed directly to Vercel, Cloudflare Pages, or Netlify.
+
+## Asset attribution
+
+The Boston terrier model is by [Creazilla](https://creazilla.com/) and is used under the Creazilla Open-Source License. See [the included license](public/assets/boston-terrier-license.txt).

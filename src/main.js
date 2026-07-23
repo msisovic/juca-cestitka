@@ -212,7 +212,6 @@ function updateVisuals(delta) {
   const bounce = Math.sin(elapsed * (5 + speed * 0.55)) * Math.min(speed * 0.005, 0.035);
   dog.position.y += bounce;
   dog.rotation.x = Math.min(speed / MAX_SPEED, 1) * -0.1;
-  dog.userData.head.rotation.x = Math.sin(elapsed * 4.5) * 0.025;
 
   shadow.position.x = position.x;
   shadow.position.z = position.z;
