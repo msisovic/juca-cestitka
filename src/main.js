@@ -9,9 +9,11 @@ await RAPIER.init({});
 
 const BALL_RADIUS = 1.28;
 const START = new THREE.Vector3(0, BALL_RADIUS + 0.08, 7);
-const MAX_SPEED = 13;
+const MAX_SPEED = 26;
 const CONTROL_ACCELERATION = 12;
-const CAMERA_OFFSET = new THREE.Vector3(0, 5.1, 7.6);
+const CAMERA_OFFSET = new THREE.Vector3(0, 8.85, 13.2);
+const PHYSICS_TIMESTEP = 1 / 120;
+const MAX_FRAME_DELTA = 1 / 20;
 
 const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.25));
@@ -33,6 +35,7 @@ scene.add(sun);
 scene.add(createCheckerboard());
 
 const world = new RAPIER.World({ x: 0, y: -22, z: 0 });
+world.timestep = PHYSICS_TIMESTEP;
 const groundBody = world.createRigidBody(
   RAPIER.RigidBodyDesc.fixed().setTranslation(0, -0.625, 0),
 );
@@ -78,13 +81,17 @@ const ringMaterial = new THREE.MeshBasicMaterial({
   opacity: 0.32,
   depthWrite: false,
 });
+const RING_TUBE_RADIUS = 0.012;
+const RING_RADIUS = BALL_RADIUS - RING_TUBE_RADIUS - 0.004;
 for (const rotation of [
   [0, 0, 0],
   [Math.PI / 2, 0, 0],
   [0, Math.PI / 2, 0],
 ]) {
   const ring = new THREE.Mesh(
-    new THREE.TorusGeometry(BALL_RADIUS + 0.005, 0.016, 4, 40),
+    // Keep the seams inside the physics sphere so they cannot look like
+    // protruding ridges as the ball rolls along the ground.
+    new THREE.TorusGeometry(RING_RADIUS, RING_TUBE_RADIUS, 4, 40),
     ringMaterial,
   );
   ring.rotation.set(...rotation);
@@ -114,8 +121,14 @@ const movement = new THREE.Vector3();
 const heading = new THREE.Vector3(0, 0, -1);
 const cameraTarget = new THREE.Vector3();
 const cameraAnchor = START.clone();
-let dogYaw = 0;
-let elapsed = 0;
+const previousPhysicsPosition = START.clone();
+const currentPhysicsPosition = START.clone();
+const renderPosition = START.clone();
+const previousPhysicsRotation = new THREE.Quaternion();
+const currentPhysicsRotation = new THREE.Quaternion();
+const renderRotation = new THREE.Quaternion();
+let dogYaw = Math.PI;
+let physicsAccumulator = 0;
 
 const controlledKeys = new Set([
   "ArrowUp",
@@ -151,10 +164,17 @@ function resetBall() {
   ballBody.setAngvel({ x: 0, y: 0, z: 0 }, true);
   movement.set(0, 0, 0);
   heading.set(0, 0, -1);
+  previousPhysicsPosition.copy(START);
+  currentPhysicsPosition.copy(START);
+  renderPosition.copy(START);
+  previousPhysicsRotation.identity();
+  currentPhysicsRotation.identity();
+  renderRotation.identity();
+  physicsAccumulator = 0;
   cameraAnchor.copy(START);
   camera.position.copy(cameraAnchor).add(CAMERA_OFFSET);
   camera.lookAt(cameraAnchor.x, cameraAnchor.y + 0.15, cameraAnchor.z);
-  dogYaw = 0;
+  dogYaw = Math.PI;
 }
 
 function shortestAngle(from, to) {
@@ -196,21 +216,17 @@ function updateControls(delta) {
   }
 }
 
-function updateVisuals(delta) {
-  const position = ballBody.translation();
-  const rotation = ballBody.rotation();
+function updateVisuals(delta, position, rotation) {
   ballVisual.position.set(position.x, position.y, position.z);
   ballVisual.quaternion.set(rotation.x, rotation.y, rotation.z, rotation.w);
 
   dog.position.set(position.x, position.y - 0.38, position.z);
-  // Keep the dog's face toward the chase camera so its markings stay readable.
-  const desiredDogYaw = Math.atan2(-heading.x, -heading.z);
+  // Point the dog's head in the direction of travel.
+  const desiredDogYaw = Math.atan2(heading.x, heading.z);
   dogYaw += shortestAngle(dogYaw, desiredDogYaw) * (1 - Math.exp(-delta * 6));
   dog.rotation.y = dogYaw;
 
   const speed = Math.hypot(ballBody.linvel().x, ballBody.linvel().z);
-  const bounce = Math.sin(elapsed * (5 + speed * 0.55)) * Math.min(speed * 0.005, 0.035);
-  dog.position.y += bounce;
   dog.rotation.x = Math.min(speed / MAX_SPEED, 1) * -0.1;
 
   shadow.position.x = position.x;
@@ -220,8 +236,7 @@ function updateVisuals(delta) {
   shadow.material.opacity = THREE.MathUtils.clamp(0.38 - height * 0.08, 0.08, 0.38);
 }
 
-function updateCamera(delta) {
-  const position = ballBody.translation();
+function updateCamera(delta, position) {
   cameraTarget.set(position.x, position.y, position.z);
   cameraAnchor.lerp(cameraTarget, 1 - Math.exp(-delta * 5.5));
   camera.position.copy(cameraAnchor).add(CAMERA_OFFSET);
@@ -232,15 +247,32 @@ let previousTime = performance.now();
 
 function frame(time) {
   requestAnimationFrame(frame);
-  const delta = Math.min((time - previousTime) / 1000, 1 / 20);
+  const delta = Math.min((time - previousTime) / 1000, MAX_FRAME_DELTA);
   previousTime = time;
-  elapsed += delta;
+  physicsAccumulator += delta;
 
-  updateControls(delta);
-  world.timestep = Math.min(delta, 1 / 30);
-  world.step();
-  updateVisuals(delta);
-  updateCamera(delta);
+  while (physicsAccumulator >= PHYSICS_TIMESTEP) {
+    previousPhysicsPosition.copy(currentPhysicsPosition);
+    previousPhysicsRotation.copy(currentPhysicsRotation);
+    updateControls(PHYSICS_TIMESTEP);
+    world.step();
+
+    const position = ballBody.translation();
+    const rotation = ballBody.rotation();
+    currentPhysicsPosition.set(position.x, position.y, position.z);
+    currentPhysicsRotation.set(rotation.x, rotation.y, rotation.z, rotation.w);
+    physicsAccumulator -= PHYSICS_TIMESTEP;
+  }
+
+  const interpolation = physicsAccumulator / PHYSICS_TIMESTEP;
+  renderPosition.lerpVectors(previousPhysicsPosition, currentPhysicsPosition, interpolation);
+  renderRotation.slerpQuaternions(
+    previousPhysicsRotation,
+    currentPhysicsRotation,
+    interpolation,
+  );
+  updateVisuals(delta, renderPosition, renderRotation);
+  updateCamera(delta, renderPosition);
 
   if (ballBody.translation().y < -8) resetBall();
   renderer.render(scene, camera);
