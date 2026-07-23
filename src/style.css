@@ -26,6 +26,18 @@ canvas {
   image-rendering: pixelated;
 }
 
+.level-status {
+  position: fixed;
+  top: 15px;
+  left: 18px;
+  color: rgb(255 255 255 / 78%);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  pointer-events: none;
+  text-shadow: 1px 1px 0 rgb(70 0 58 / 55%);
+}
+
 .controls {
   position: fixed;
   right: 18px;

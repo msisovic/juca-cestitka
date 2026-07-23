@@ -1,14 +1,14 @@
 import * as THREE from "three";
 
-export function createCheckerboard(size = 80, squareSize = 4) {
+function createCheckerTexture(width, depth, squareSize, lightColor, darkColor) {
   const canvas = document.createElement("canvas");
   canvas.width = 2;
   canvas.height = 2;
 
   const context = canvas.getContext("2d");
-  context.fillStyle = "#ffffff";
+  context.fillStyle = lightColor;
   context.fillRect(0, 0, 2, 2);
-  context.fillStyle = "#d027ad";
+  context.fillStyle = darkColor;
   context.fillRect(0, 0, 1, 1);
   context.fillRect(1, 1, 1, 1);
 
@@ -18,25 +18,53 @@ export function createCheckerboard(size = 80, squareSize = 4) {
   texture.minFilter = THREE.NearestFilter;
   texture.wrapS = THREE.RepeatWrapping;
   texture.wrapT = THREE.RepeatWrapping;
-  const repeats = size / (squareSize * 2);
-  texture.repeat.set(repeats, repeats);
+  texture.repeat.set(width / (squareSize * 2), depth / (squareSize * 2));
+  return texture;
+}
 
+export function createCheckerboardPlatform({
+  size,
+  position,
+  rotation = [0, 0, 0],
+  squareSize,
+  lightColor = "#ffffff",
+  darkColor = "#d027ad",
+  sideColor = 0x8e0876,
+}) {
+  const [width, height, depth] = size;
+  const texture = createCheckerTexture(
+    width,
+    depth,
+    squareSize,
+    lightColor,
+    darkColor,
+  );
+  const topMaterial = new THREE.MeshLambertMaterial({ map: texture });
+  const sideMaterial = new THREE.MeshLambertMaterial({ color: sideColor });
+  const materials = [
+    sideMaterial,
+    sideMaterial,
+    topMaterial,
+    sideMaterial,
+    sideMaterial,
+    sideMaterial,
+  ];
+
+  const platform = new THREE.Mesh(
+    new THREE.BoxGeometry(width, height, depth),
+    materials,
+  );
+  platform.position.set(...position);
+  platform.rotation.set(...rotation);
+  return platform;
+}
+
+export function createCheckerboard(size = 80, squareSize = 4) {
   const group = new THREE.Group();
-
-  const top = new THREE.Mesh(
-    new THREE.PlaneGeometry(size, size),
-    new THREE.MeshLambertMaterial({ map: texture }),
-  );
-  top.rotation.x = -Math.PI / 2;
-  top.position.y = 0.01;
-  group.add(top);
-
-  const base = new THREE.Mesh(
-    new THREE.BoxGeometry(size, 1.25, size),
-    new THREE.MeshLambertMaterial({ color: 0x8e0876 }),
-  );
-  base.position.y = -0.625;
-  group.add(base);
-
+  group.add(createCheckerboardPlatform({
+    size: [size, 1.25, size],
+    position: [0, -0.625, 0],
+    squareSize,
+  }));
   return group;
 }

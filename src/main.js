@@ -1,14 +1,14 @@
 import * as THREE from "three";
 import RAPIER from "@dimforge/rapier3d-compat";
 import "./style.css";
-import { createCheckerboard } from "./checkerboard.js";
 import { createBostonTerrier } from "./dog.js";
+import { createLevel, destroyLevel, getLevelCount } from "./levels.js";
 import { accelerateHorizontal } from "./movement.js";
 
 await RAPIER.init({});
 
 const BALL_RADIUS = 1.28;
-const START = new THREE.Vector3(0, BALL_RADIUS + 0.08, 7);
+const levelStart = new THREE.Vector3(0, BALL_RADIUS + 0.08, 7);
 const MAX_SPEED = 26;
 const CONTROL_ACCELERATION = 12;
 const CAMERA_OFFSET = new THREE.Vector3(0, 8.85, 13.2);
@@ -32,21 +32,13 @@ scene.add(new THREE.HemisphereLight(0xffffff, 0x740661, 2.25));
 const sun = new THREE.DirectionalLight(0xffffff, 2.4);
 sun.position.set(-6, 12, 8);
 scene.add(sun);
-scene.add(createCheckerboard(80, BALL_RADIUS * 2));
 
 const world = new RAPIER.World({ x: 0, y: -22, z: 0 });
 world.timestep = PHYSICS_TIMESTEP;
-const groundBody = world.createRigidBody(
-  RAPIER.RigidBodyDesc.fixed().setTranslation(0, -0.625, 0),
-);
-world.createCollider(
-  RAPIER.ColliderDesc.cuboid(40, 0.625, 40).setFriction(1.35),
-  groundBody,
-);
 
 const ballBody = world.createRigidBody(
   RAPIER.RigidBodyDesc.dynamic()
-    .setTranslation(START.x, START.y, START.z)
+    .setTranslation(levelStart.x, levelStart.y, levelStart.z)
     .setLinearDamping(0.35)
     .setAngularDamping(0.72)
     .setCcdEnabled(true),
@@ -120,15 +112,17 @@ const pressed = new Set();
 const movement = new THREE.Vector3();
 const heading = new THREE.Vector3(0, 0, -1);
 const cameraTarget = new THREE.Vector3();
-const cameraAnchor = START.clone();
-const previousPhysicsPosition = START.clone();
-const currentPhysicsPosition = START.clone();
-const renderPosition = START.clone();
+const cameraAnchor = levelStart.clone();
+const previousPhysicsPosition = levelStart.clone();
+const currentPhysicsPosition = levelStart.clone();
+const renderPosition = levelStart.clone();
 const previousPhysicsRotation = new THREE.Quaternion();
 const currentPhysicsRotation = new THREE.Quaternion();
 const renderRotation = new THREE.Quaternion();
+const shadowRay = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: -1, z: 0 });
 let dogYaw = Math.PI;
 let physicsAccumulator = 0;
+let activeLevel;
 
 const controlledKeys = new Set([
   "ArrowUp",
@@ -143,6 +137,17 @@ const controlledKeys = new Set([
 ]);
 
 window.addEventListener("keydown", (event) => {
+  const requestedLevel = Number(event.code.replace("Digit", ""));
+  if (
+    event.code.startsWith("Digit")
+    && Number.isInteger(requestedLevel)
+    && requestedLevel < getLevelCount()
+  ) {
+    event.preventDefault();
+    if (!event.repeat) switchLevel(requestedLevel);
+    return;
+  }
+
   if (controlledKeys.has(event.code)) event.preventDefault();
   pressed.add(event.code);
   if (event.code === "KeyR") resetBall();
@@ -155,26 +160,49 @@ window.addEventListener("keyup", (event) => {
 window.addEventListener("blur", () => pressed.clear());
 
 function resetBall() {
+  const spawn = activeLevel?.start ?? levelStart;
   pressed.clear();
   ballBody.resetForces(true);
   ballBody.resetTorques(true);
-  ballBody.setTranslation({ x: START.x, y: START.y, z: START.z }, true);
+  ballBody.setTranslation({ x: spawn.x, y: spawn.y, z: spawn.z }, true);
   ballBody.setRotation({ x: 0, y: 0, z: 0, w: 1 }, true);
   ballBody.setLinvel({ x: 0, y: 0, z: 0 }, true);
   ballBody.setAngvel({ x: 0, y: 0, z: 0 }, true);
   movement.set(0, 0, 0);
   heading.set(0, 0, -1);
-  previousPhysicsPosition.copy(START);
-  currentPhysicsPosition.copy(START);
-  renderPosition.copy(START);
+  previousPhysicsPosition.copy(spawn);
+  currentPhysicsPosition.copy(spawn);
+  renderPosition.copy(spawn);
   previousPhysicsRotation.identity();
   currentPhysicsRotation.identity();
   renderRotation.identity();
   physicsAccumulator = 0;
-  cameraAnchor.copy(START);
+  cameraAnchor.copy(spawn);
   camera.position.copy(cameraAnchor).add(CAMERA_OFFSET);
   camera.lookAt(cameraAnchor.x, cameraAnchor.y + 0.15, cameraAnchor.z);
   dogYaw = Math.PI;
+}
+
+function switchLevel(levelId) {
+  if (activeLevel?.id === levelId) {
+    resetBall();
+    return;
+  }
+
+  if (activeLevel) {
+    scene.remove(activeLevel.group);
+    destroyLevel(world, activeLevel);
+  }
+
+  activeLevel = createLevel(world, levelId, BALL_RADIUS * 2);
+  levelStart.copy(activeLevel.start);
+  scene.add(activeLevel.group);
+  document.querySelector("#level-name").textContent = `LEVEL ${activeLevel.id}: ${activeLevel.name}`;
+
+  const url = new URL(window.location.href);
+  url.searchParams.set("level", activeLevel.id);
+  window.history.replaceState(null, "", url);
+  resetBall();
 }
 
 function shortestAngle(from, to) {
@@ -231,7 +259,23 @@ function updateVisuals(delta, position, rotation) {
 
   shadow.position.x = position.x;
   shadow.position.z = position.z;
-  const height = Math.max(position.y - BALL_RADIUS, 0);
+  shadowRay.origin.x = position.x;
+  shadowRay.origin.y = position.y;
+  shadowRay.origin.z = position.z;
+  const shadowHit = world.castRay(
+    shadowRay,
+    20,
+    true,
+    undefined,
+    undefined,
+    undefined,
+    ballBody,
+  );
+  shadow.visible = Boolean(shadowHit);
+  if (!shadowHit) return;
+
+  shadow.position.y = position.y - shadowHit.timeOfImpact + 0.025;
+  const height = Math.max(shadowHit.timeOfImpact - BALL_RADIUS, 0);
   shadow.scale.setScalar(THREE.MathUtils.clamp(1 - height * 0.16, 0.45, 1));
   shadow.material.opacity = THREE.MathUtils.clamp(0.38 - height * 0.08, 0.08, 0.38);
 }
@@ -244,6 +288,9 @@ function updateCamera(delta, position) {
 }
 
 let previousTime = performance.now();
+
+const requestedLevel = Number(new URLSearchParams(window.location.search).get("level"));
+switchLevel(Number.isInteger(requestedLevel) ? requestedLevel : 0);
 
 function frame(time) {
   requestAnimationFrame(frame);
@@ -264,6 +311,8 @@ function frame(time) {
     physicsAccumulator -= PHYSICS_TIMESTEP;
   }
 
+  if (ballBody.translation().y < activeLevel.fallY) resetBall();
+
   const interpolation = physicsAccumulator / PHYSICS_TIMESTEP;
   renderPosition.lerpVectors(previousPhysicsPosition, currentPhysicsPosition, interpolation);
   renderRotation.slerpQuaternions(
@@ -274,7 +323,6 @@ function frame(time) {
   updateVisuals(delta, renderPosition, renderRotation);
   updateCamera(delta, renderPosition);
 
-  if (ballBody.translation().y < -8) resetBall();
   renderer.render(scene, camera);
 }
 
