@@ -10,7 +10,7 @@ await RAPIER.init({});
 const BALL_RADIUS = 1.28;
 const levelStart = new THREE.Vector3(0, BALL_RADIUS + 0.08, 7);
 const MAX_SPEED = 26;
-const CONTROL_ACCELERATION = 12;
+const CONTROL_ACCELERATION = 15;
 const CAMERA_OFFSET = new THREE.Vector3(0, 8.85, 13.2);
 const PHYSICS_TIMESTEP = 1 / 120;
 const MAX_FRAME_DELTA = 1 / 20;
