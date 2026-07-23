@@ -32,7 +32,7 @@ scene.add(new THREE.HemisphereLight(0xffffff, 0x740661, 2.25));
 const sun = new THREE.DirectionalLight(0xffffff, 2.4);
 sun.position.set(-6, 12, 8);
 scene.add(sun);
-scene.add(createCheckerboard());
+scene.add(createCheckerboard(80, BALL_RADIUS * 2));
 
 const world = new RAPIER.World({ x: 0, y: -22, z: 0 });
 world.timestep = PHYSICS_TIMESTEP;

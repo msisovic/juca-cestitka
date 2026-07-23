@@ -1,6 +1,6 @@
 import * as THREE from "three";
 
-export function createCheckerboard(size = 80, squares = 20) {
+export function createCheckerboard(size = 80, squareSize = 4) {
   const canvas = document.createElement("canvas");
   canvas.width = 2;
   canvas.height = 2;
@@ -18,7 +18,8 @@ export function createCheckerboard(size = 80, squares = 20) {
   texture.minFilter = THREE.NearestFilter;
   texture.wrapS = THREE.RepeatWrapping;
   texture.wrapT = THREE.RepeatWrapping;
-  texture.repeat.set(squares / 2, squares / 2);
+  const repeats = size / (squareSize * 2);
+  texture.repeat.set(repeats, repeats);
 
   const group = new THREE.Group();
 
