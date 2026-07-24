@@ -38,3 +38,36 @@ test("acceleration respects the top speed", () => {
 
   assert.equal(Math.hypot(velocity.x, velocity.z), 13);
 });
+
+test("input does not clamp momentum already above the top speed", () => {
+  const velocity = accelerateHorizontal(
+    { x: 30, z: 0 },
+    { x: 1, z: 0 },
+    15,
+    1,
+    26,
+  );
+
+  assert.equal(Math.hypot(velocity.x, velocity.z), 30);
+});
+
+test("input can steer or brake momentum above the top speed", () => {
+  const steered = accelerateHorizontal(
+    { x: 30, z: 0 },
+    { x: 0, z: 1 },
+    15,
+    0.1,
+    26,
+  );
+  const braked = accelerateHorizontal(
+    { x: 30, z: 0 },
+    { x: -1, z: 0 },
+    15,
+    0.1,
+    26,
+  );
+
+  assert.ok(steered.z > 0);
+  assert.ok(Math.abs(Math.hypot(steered.x, steered.z) - 30) < 1e-10);
+  assert.equal(Math.hypot(braked.x, braked.z), 28.5);
+});

@@ -4,7 +4,28 @@ import {
   platform,
   quarterTurn,
   ramp,
+  spiral,
 } from "./level-pieces.js";
+
+const FINAL_SPIRAL = spiral({
+  center: [-2, -19],
+  innerRadiusCells: 2,
+  widthCells: 2,
+  startDirection: "west",
+  endDirection: "east",
+  turns: 1,
+  clockwise: true,
+  slope: 1.3,
+  elevation: 0.6,
+  boundHeightScale: 2,
+  capStart: false,
+  capEnd: false,
+  bounds: {
+    inner: true,
+    outer: true,
+  },
+});
+const FINAL_TRACK_ELEVATION = FINAL_SPIRAL.elevation - FINAL_SPIRAL.drop;
 
 const LEVELS = [
   {
@@ -25,11 +46,11 @@ const LEVELS = [
     id: 1,
     name: "FIRST RUN",
     start: { grid: [0, 6], y: 1.36 },
-    fallY: -3,
+    fallY: FINAL_TRACK_ELEVATION - 5,
     colors: ["#fff9b8", "#f6c744", 0xaa6e16],
     finish: {
-      grid: [-2.5, -22.5],
-      y: 1.11,
+      grid: [14.5, -23],
+      y: FINAL_TRACK_ELEVATION + 0.51,
       radius: 2.3,
     },
     pieces: [
@@ -38,6 +59,11 @@ const LEVELS = [
         at: [0.5, 4.5],
         height: 1.25,
         elevation: -0.625,
+        bounds: {
+          all: true,
+          // Leave the curved-track entrance and its neighboring cells open.
+          north: [true, false, false, false, true],
+        },
       }),
       quarterTurn({
         center: [6, 2],
@@ -74,15 +100,56 @@ const LEVELS = [
         at: [3, -16],
         elevation: 0.6,
       }),
+      FINAL_SPIRAL,
       platform({
-        cells: [2, 3],
-        at: [-2, -18.5],
-        elevation: 0.6,
+        cells: [4, 1],
+        at: [0, -22.5],
+        elevation: FINAL_TRACK_ELEVATION,
+      }),
+      quarterTurn({
+        center: [2, -20],
+        innerRadiusCells: 2,
+        widthCells: 1,
+        startAngle: Math.PI * 1.5,
+        clockwise: true,
+        elevation: FINAL_TRACK_ELEVATION,
+        capStart: false,
+        capEnd: false,
+      }),
+      quarterTurn({
+        center: [7, -20],
+        innerRadiusCells: 2,
+        widthCells: 1,
+        startAngle: Math.PI,
+        clockwise: false,
+        elevation: FINAL_TRACK_ELEVATION,
+        capStart: false,
+        capEnd: false,
+      }),
+      quarterTurn({
+        center: [7, -20],
+        innerRadiusCells: 2,
+        widthCells: 1,
+        startAngle: Math.PI / 2,
+        clockwise: false,
+        elevation: FINAL_TRACK_ELEVATION,
+        capStart: false,
+        capEnd: false,
+      }),
+      quarterTurn({
+        center: [12, -20],
+        innerRadiusCells: 2,
+        widthCells: 1,
+        startAngle: Math.PI,
+        clockwise: true,
+        elevation: FINAL_TRACK_ELEVATION,
+        capStart: false,
+        capEnd: false,
       }),
       platform({
         cells: [5, 4],
-        at: [-2.5, -22],
-        elevation: 0.6,
+        at: [14.5, -23],
+        elevation: FINAL_TRACK_ELEVATION,
       }),
     ],
   },

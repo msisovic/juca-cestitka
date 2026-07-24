@@ -184,9 +184,11 @@ export function getQuarterTurnSegmentVertices(
   height,
   startAngle,
   endAngle,
+  startDrop = 0,
+  endDrop = 0,
 ) {
-  const top = height / 2;
-  const bottom = -height / 2;
+  const startTop = height / 2 - startDrop;
+  const endTop = height / 2 - endDrop;
   const point = (radius, angle, y) => [
     Math.cos(angle) * radius,
     y,
@@ -194,23 +196,25 @@ export function getQuarterTurnSegmentVertices(
   ];
 
   return [
-    point(innerRadius, startAngle, top),
-    point(innerRadius, endAngle, top),
-    point(outerRadius, endAngle, top),
-    point(outerRadius, startAngle, top),
-    point(innerRadius, startAngle, bottom),
-    point(innerRadius, endAngle, bottom),
-    point(outerRadius, endAngle, bottom),
-    point(outerRadius, startAngle, bottom),
+    point(innerRadius, startAngle, startTop),
+    point(innerRadius, endAngle, endTop),
+    point(outerRadius, endAngle, endTop),
+    point(outerRadius, startAngle, startTop),
+    point(innerRadius, startAngle, startTop - height),
+    point(innerRadius, endAngle, endTop - height),
+    point(outerRadius, endAngle, endTop - height),
+    point(outerRadius, startAngle, startTop - height),
   ];
 }
 
-export function createCheckerboardQuarterTurn({
+export function createCheckerboardCurvedTrack({
   position,
   height,
   innerRadius,
   width,
   startAngle,
+  sweepAngle = Math.PI / 2,
+  drop = 0,
   segments = 12,
   capStart = true,
   capEnd = true,
@@ -220,19 +224,23 @@ export function createCheckerboardQuarterTurn({
   sideColor = 0x8e0876,
 }) {
   const outerRadius = innerRadius + width;
-  const angleStep = Math.PI / 2 / segments;
+  const angleStep = sweepAngle / segments;
   const segmentCorners = [];
   const boundsPoints = [];
 
   for (let index = 0; index < segments; index += 1) {
     const angle = startAngle + index * angleStep;
     const nextAngle = angle + angleStep;
+    const startDrop = drop * index / segments;
+    const endDrop = drop * (index + 1) / segments;
     segmentCorners.push(getQuarterTurnSegmentVertices(
       innerRadius,
       outerRadius,
       height,
       angle,
       nextAngle,
+      startDrop,
+      endDrop,
     ));
     for (const radius of [innerRadius, outerRadius]) {
       boundsPoints.push([
@@ -300,18 +308,37 @@ export function createCheckerboardQuarterTurn({
   const standardUvs = [[0, 0], [1, 0], [1, 1], [0, 1]];
   segmentCorners.forEach((corners) => {
     const topFace = [corners[0], corners[1], corners[2], corners[3]];
-    addFace(topFace, 1, topFace.map(topUv));
-    addFace([corners[4], corners[7], corners[6], corners[5]], 0, standardUvs);
-    addFace([corners[4], corners[5], corners[1], corners[0]], 0, standardUvs);
-    addFace([corners[7], corners[3], corners[2], corners[6]], 0, standardUvs);
+    const faces = [
+      [topFace, 1, topFace.map(topUv)],
+      [[corners[4], corners[7], corners[6], corners[5]], 0, standardUvs],
+      [[corners[4], corners[5], corners[1], corners[0]], 0, standardUvs],
+      [[corners[7], corners[3], corners[2], corners[6]], 0, standardUvs],
+    ];
+    for (const [vertices, materialIndex, faceUvs] of faces) {
+      addFace(
+        sweepAngle > 0 ? vertices : [...vertices].reverse(),
+        materialIndex,
+        sweepAngle > 0 ? faceUvs : [...faceUvs].reverse(),
+      );
+    }
   });
   const first = segmentCorners[0];
   const last = segmentCorners.at(-1);
   if (capStart) {
-    addFace([first[4], first[0], first[3], first[7]], 0, standardUvs);
+    const vertices = [first[4], first[0], first[3], first[7]];
+    addFace(
+      sweepAngle > 0 ? vertices : [...vertices].reverse(),
+      0,
+      sweepAngle > 0 ? standardUvs : [...standardUvs].reverse(),
+    );
   }
   if (capEnd) {
-    addFace([last[5], last[6], last[2], last[1]], 0, standardUvs);
+    const vertices = [last[5], last[6], last[2], last[1]];
+    addFace(
+      sweepAngle > 0 ? vertices : [...vertices].reverse(),
+      0,
+      sweepAngle > 0 ? standardUvs : [...standardUvs].reverse(),
+    );
   }
 
   geometry.setIndex(indices);
@@ -322,6 +349,10 @@ export function createCheckerboardQuarterTurn({
   const turn = new THREE.Mesh(geometry, [materials.side, materials.top]);
   turn.position.set(...position);
   return turn;
+}
+
+export function createCheckerboardQuarterTurn(options) {
+  return createCheckerboardCurvedTrack(options);
 }
 
 export function createCheckerboard(size = 80, squareSize = 4) {
