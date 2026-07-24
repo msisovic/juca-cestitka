@@ -23,13 +23,53 @@ const CARDINAL_DIRECTIONS = {
   south: 0,
   west: Math.PI / 2,
 };
+const RAMP_ROTATIONS = {
+  north: 0,
+  east: -Math.PI / 2,
+  south: Math.PI,
+  west: Math.PI / 2,
+};
+const CARDINAL_VECTORS = {
+  north: [0, -1],
+  east: [1, 0],
+  south: [0, 1],
+  west: [-1, 0],
+};
 
 export function platform(options) {
   return { type: "platform", ...options };
 }
 
 export function ramp(options) {
-  return { type: "ramp", ...options };
+  return { type: "ramp", direction: "north", ...options };
+}
+
+export function boostPad(options) {
+  return {
+    type: "boostPad",
+    cells: [1, 1],
+    direction: "north",
+    speed: 52,
+    ...options,
+  };
+}
+
+function rotateAroundY([x, y, z], angle) {
+  const cosine = Math.cos(angle);
+  const sine = Math.sin(angle);
+  return [
+    x * cosine + z * sine,
+    y,
+    -x * sine + z * cosine,
+  ];
+}
+
+function getRampRotation(piece) {
+  const rotation = RAMP_ROTATIONS[piece.direction];
+  if (rotation === undefined) {
+    throw new Error(`Unknown ramp direction: ${piece.direction}`);
+  }
+  return rotation;
 }
 
 export function quarterTurn(options) {
@@ -161,7 +201,13 @@ function addWallCollider(world, body, height, createDescriptor) {
   );
 }
 
-function addSurfaceCollider(world, body, vertices, indices = QUAD_INDICES) {
+function addSurfaceCollider(
+  world,
+  body,
+  vertices,
+  indices = QUAD_INDICES,
+  friction = SURFACE_FRICTION,
+) {
   addCollider(
     world,
     body,
@@ -170,6 +216,10 @@ function addSurfaceCollider(world, body, vertices, indices = QUAD_INDICES) {
       new Uint32Array(indices),
       RAPIER.TriMeshFlags.FIX_INTERNAL_EDGES,
     ),
+    friction,
+    friction === SURFACE_FRICTION
+      ? undefined
+      : RAPIER.CoefficientCombineRule.Min,
   );
 }
 
@@ -243,14 +293,17 @@ function createBoundaryBuilder(
       group.add(new THREE.Mesh(geometry, getMaterial()));
     },
     addTrimesh(vertices, indices, friction = WALL_FRICTION) {
+      const descriptor = RAPIER.ColliderDesc.trimesh(
+        new Float32Array(vertices),
+        new Uint32Array(indices),
+        RAPIER.TriMeshFlags.FIX_INTERNAL_EDGES,
+      )
+        .setRestitution(0)
+        .setRestitutionCombineRule(RAPIER.CoefficientCombineRule.Min);
       addCollider(
         world,
         body,
-        RAPIER.ColliderDesc.trimesh(
-          new Float32Array(vertices),
-          new Uint32Array(indices),
-          RAPIER.TriMeshFlags.FIX_INTERNAL_EDGES,
-        ),
+        descriptor,
         friction,
         RAPIER.CoefficientCombineRule.Min,
       );
@@ -264,7 +317,7 @@ function addConfiguredBounds(bounds, edge, unitCount, addUnit) {
   });
 }
 
-function addRectangleBounds(builder, piece, size, squareSize) {
+function addRectangleBounds(builder, piece, size, squareSize, rotationY = 0) {
   const [width, height, depth] = size;
   const [widthCells, depthCells] = piece.cells;
   const halfWidth = width / 2;
@@ -272,6 +325,12 @@ function addRectangleBounds(builder, piece, size, squareSize) {
   const slope = piece.type === "ramp" ? piece.rise / depth : 0;
   const surfaceNormal = new THREE.Vector3(0, 1, slope).normalize().toArray();
   const topAtZ = (z) => height / 2 - slope * z;
+  const add = (start, end, normal, inward) => builder.add(
+    rotateAroundY(start, rotationY),
+    rotateAroundY(end, rotationY),
+    rotateAroundY(normal, rotationY),
+    rotateAroundY(inward, rotationY),
+  );
 
   for (const [edge, z, inwardZ] of [
     ["north", -halfDepth, 1],
@@ -280,7 +339,7 @@ function addRectangleBounds(builder, piece, size, squareSize) {
     addConfiguredBounds(piece.bounds, edge, widthCells, (index) => {
       const startX = -halfWidth + index * squareSize;
       const endX = startX + squareSize;
-      builder.add(
+      add(
         [startX, topAtZ(z), z],
         [endX, topAtZ(z), z],
         surfaceNormal,
@@ -296,7 +355,7 @@ function addRectangleBounds(builder, piece, size, squareSize) {
     addConfiguredBounds(piece.bounds, edge, depthCells, (index) => {
       const startZ = -halfDepth + index * squareSize;
       const endZ = startZ + squareSize;
-      builder.add(
+      add(
         [x, topAtZ(startZ), startZ],
         [x, topAtZ(endZ), endZ],
         surfaceNormal,
@@ -330,7 +389,7 @@ function addSmoothSpiralBound(
     indices.push(offset, offset + 1, offset + 2, offset, offset + 2, offset + 3);
   }
 
-  const visualSegments = Math.max(piece.segments * 2, unitCount * 3);
+  const visualSegments = Math.max(piece.segments * 4, unitCount * 4);
   for (let index = 0; index < visualSegments; index += 1) {
     const startProgress = index / visualSegments;
     const endProgress = (index + 1) / visualSegments;
@@ -495,6 +554,180 @@ function validateGridRectangle(piece) {
   }
 }
 
+function createBoostPadPiece(piece, squareSize) {
+  validateGridRectangle(piece);
+  const direction = CARDINAL_VECTORS[piece.direction];
+  if (!direction) throw new Error(`Unknown boost direction: ${piece.direction}`);
+  if (!Number.isFinite(piece.speed) || piece.speed <= 0) {
+    throw new Error("Boost speed must be a positive number.");
+  }
+
+  const width = piece.cells[0] * squareSize;
+  const depth = piece.cells[1] * squareSize;
+  const group = new THREE.Group();
+  group.position.set(
+    piece.at[0] * squareSize,
+    piece.elevation + 0.012,
+    piece.at[1] * squareSize,
+  );
+
+  const base = new THREE.Mesh(
+    new THREE.PlaneGeometry(width * 0.92, depth * 0.92),
+    new THREE.MeshBasicMaterial({ color: 0xe63b2e, side: THREE.DoubleSide }),
+  );
+  base.rotation.x = -Math.PI / 2;
+  group.add(base);
+
+  const [directionX, directionZ] = direction;
+  const perpendicularX = -directionZ;
+  const perpendicularZ = directionX;
+  for (const offset of [-0.2, 0.2]) {
+    const centerX = directionX * offset * squareSize;
+    const centerZ = directionZ * offset * squareSize;
+    const tipDistance = 0.18 * squareSize;
+    const tailDistance = 0.14 * squareSize;
+    const halfArrowWidth = 0.22 * squareSize;
+    const positions = new Float32Array([
+      centerX + directionX * tipDistance, 0.006, centerZ + directionZ * tipDistance,
+      centerX - directionX * tailDistance + perpendicularX * halfArrowWidth,
+      0.006,
+      centerZ - directionZ * tailDistance + perpendicularZ * halfArrowWidth,
+      centerX - directionX * tailDistance - perpendicularX * halfArrowWidth,
+      0.006,
+      centerZ - directionZ * tailDistance - perpendicularZ * halfArrowWidth,
+    ]);
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    geometry.setIndex([0, 1, 2]);
+    geometry.computeVertexNormals();
+    group.add(new THREE.Mesh(
+      geometry,
+      new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide }),
+    ));
+  }
+
+  return {
+    visual: group,
+    bodies: [],
+    boostPads: [{
+      position: { x: group.position.x, y: piece.elevation, z: group.position.z },
+      halfLength: directionX === 0 ? depth / 2 : width / 2,
+      halfWidth: directionX === 0 ? width / 2 : depth / 2,
+      direction: { x: directionX, z: directionZ },
+      speed: piece.speed,
+    }],
+  };
+}
+
+function createSpiralBoosts(
+  piece,
+  squareSize,
+  position,
+  height,
+  innerRadius,
+  outerRadius,
+) {
+  const group = new THREE.Group();
+  const boostPads = [];
+  if (!piece.boosts) return { visual: group, boostPads };
+
+  const intervalAngle = piece.boosts.intervalAngle ?? Math.PI / 2;
+  const speed = piece.boosts.speed;
+  if (!Number.isFinite(intervalAngle) || intervalAngle <= 0) {
+    throw new Error("Spiral boost interval must be a positive angle.");
+  }
+  if (!Number.isFinite(speed) || speed <= 0) {
+    throw new Error("Spiral boost speed must be a positive number.");
+  }
+
+  const sweepMagnitude = Math.abs(piece.sweepAngle);
+  const sweepSign = Math.sign(piece.sweepAngle);
+  const centerRadius = (innerRadius + outerRadius) / 2;
+  const halfLength = squareSize * 0.45;
+  const halfWidth = (outerRadius - innerRadius) * 0.45;
+  const radialMargin = (outerRadius - innerRadius) * 0.05;
+  const baseMaterial = new THREE.MeshBasicMaterial({
+    color: 0xe63b2e,
+    side: THREE.DoubleSide,
+  });
+  const arrowMaterial = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    side: THREE.DoubleSide,
+  });
+  const point = (angle, radius, progress, lift = 0.018) => [
+    position[0] + Math.cos(angle) * radius,
+    position[1] + height / 2 - piece.drop * progress + lift,
+    position[2] + Math.sin(angle) * radius,
+  ];
+
+  for (
+    let traveledAngle = intervalAngle;
+    traveledAngle < sweepMagnitude - 1e-8;
+    traveledAngle += intervalAngle
+  ) {
+    const progress = traveledAngle / sweepMagnitude;
+    const angle = piece.startAngle + sweepSign * traveledAngle;
+    const halfAngle = halfLength / centerRadius;
+    const startAngle = angle - sweepSign * halfAngle;
+    const endAngle = angle + sweepSign * halfAngle;
+    const startProgress = progress - halfAngle / sweepMagnitude;
+    const endProgress = progress + halfAngle / sweepMagnitude;
+    const padInnerRadius = innerRadius + radialMargin;
+    const padOuterRadius = outerRadius - radialMargin;
+    const baseGeometry = new THREE.BufferGeometry();
+    baseGeometry.setAttribute("position", new THREE.Float32BufferAttribute([
+      ...point(startAngle, padInnerRadius, startProgress),
+      ...point(endAngle, padInnerRadius, endProgress),
+      ...point(endAngle, padOuterRadius, endProgress),
+      ...point(startAngle, padOuterRadius, startProgress),
+    ], 3));
+    baseGeometry.setIndex([0, 1, 2, 0, 2, 3]);
+    baseGeometry.computeVertexNormals();
+    group.add(new THREE.Mesh(baseGeometry, baseMaterial));
+
+    const surfacePoint = (travelDistance, radialDistance) => {
+      const pointAngle = angle + sweepSign * travelDistance / centerRadius;
+      const pointProgress = progress
+        + travelDistance / (centerRadius * sweepMagnitude);
+      return point(
+        pointAngle,
+        centerRadius + radialDistance,
+        pointProgress,
+        0.028,
+      );
+    };
+    for (const offset of [-0.2, 0.2]) {
+      const centerDistance = offset * squareSize;
+      const arrowGeometry = new THREE.BufferGeometry();
+      arrowGeometry.setAttribute("position", new THREE.Float32BufferAttribute([
+        ...surfacePoint(centerDistance + 0.18 * squareSize, 0),
+        ...surfacePoint(centerDistance - 0.14 * squareSize, 0.22 * squareSize),
+        ...surfacePoint(centerDistance - 0.14 * squareSize, -0.22 * squareSize),
+      ], 3));
+      arrowGeometry.setIndex([0, 1, 2]);
+      arrowGeometry.computeVertexNormals();
+      group.add(new THREE.Mesh(arrowGeometry, arrowMaterial));
+    }
+
+    boostPads.push({
+      position: {
+        x: position[0] + Math.cos(angle) * centerRadius,
+        y: position[1] + height / 2 - piece.drop * progress,
+        z: position[2] + Math.sin(angle) * centerRadius,
+      },
+      halfLength,
+      halfWidth,
+      direction: {
+        x: -Math.sin(angle) * sweepSign,
+        z: Math.cos(angle) * sweepSign,
+      },
+      speed,
+    });
+  }
+
+  return { visual: group, boostPads };
+}
+
 function createRectanglePiece(world, piece, squareSize, colors) {
   validateGridRectangle(piece);
   const [widthCells, depthCells] = piece.cells;
@@ -509,6 +742,8 @@ function createRectanglePiece(world, piece, squareSize, colors) {
     piece.at[1] * squareSize,
   ];
   const [lightColor, darkColor, sideColor] = colors;
+  const rotationY = piece.type === "ramp" ? getRampRotation(piece) : 0;
+  const surfaceFriction = piece.surfaceFriction ?? SURFACE_FRICTION;
   const visualOptions = {
     size,
     position,
@@ -520,6 +755,7 @@ function createRectanglePiece(world, piece, squareSize, colors) {
   const surfaceVisual = piece.type === "ramp"
     ? createCheckerboardRamp({ ...visualOptions, rise: piece.rise })
     : createCheckerboardPlatform(visualOptions);
+  surfaceVisual.rotation.y = rotationY;
   const body = createFixedBody(world, position);
 
   if (piece.type === "ramp") {
@@ -528,25 +764,33 @@ function createRectanglePiece(world, piece, squareSize, colors) {
       body,
       size[1],
       (height) => RAPIER.ColliderDesc.convexHull(new Float32Array(
-        getRampVertices(size[0], height, size[2], piece.rise).flat(),
+        getRampVertices(size[0], height, size[2], piece.rise)
+          .map((vertex) => rotateAroundY(vertex, rotationY))
+          .flat(),
       )),
     );
     addSurfaceCollider(
       world,
       body,
-      getRampVertices(...size, piece.rise).slice(0, 4),
+      getRampVertices(...size, piece.rise)
+        .slice(0, 4)
+        .map((vertex) => rotateAroundY(vertex, rotationY)),
+      QUAD_INDICES,
+      surfaceFriction,
     );
   } else {
-    addWallCollider(
-      world,
-      body,
-      size[1],
-      (height) => RAPIER.ColliderDesc.cuboid(
-        size[0] / 2,
-        height / 2,
-        size[2] / 2,
-      ),
-    );
+    if (!piece.surfaceOnly) {
+      addWallCollider(
+        world,
+        body,
+        size[1],
+        (height) => RAPIER.ColliderDesc.cuboid(
+          size[0] / 2,
+          height / 2,
+          size[2] / 2,
+        ),
+      );
+    }
     const halfWidth = size[0] / 2;
     const top = size[1] / 2;
     const halfDepth = size[2] / 2;
@@ -555,7 +799,7 @@ function createRectanglePiece(world, piece, squareSize, colors) {
       [halfWidth, top, halfDepth],
       [halfWidth, top, -halfDepth],
       [-halfWidth, top, -halfDepth],
-    ]);
+    ], QUAD_INDICES, surfaceFriction);
   }
 
   const visual = new THREE.Group();
@@ -568,7 +812,7 @@ function createRectanglePiece(world, piece, squareSize, colors) {
     sideColor,
     piece.boundHeightScale,
   );
-  addRectangleBounds(boundaryBuilder, piece, size, squareSize);
+  addRectangleBounds(boundaryBuilder, piece, size, squareSize, rotationY);
   visual.add(boundaryBuilder.group);
 
   return { visual, bodies: [body] };
@@ -675,10 +919,29 @@ function createCurvedPiece(world, piece, squareSize, colors) {
   );
   visualGroup.add(boundaryBuilder.group);
 
-  return { visual: visualGroup, bodies: [body] };
+  const spiralBoosts = piece.type === "spiral"
+    ? createSpiralBoosts(
+      piece,
+      squareSize,
+      position,
+      height,
+      innerRadius,
+      outerRadius,
+    )
+    : { visual: new THREE.Group(), boostPads: [] };
+  visualGroup.add(spiralBoosts.visual);
+
+  return {
+    visual: visualGroup,
+    bodies: [body],
+    boostPads: spiralBoosts.boostPads,
+  };
 }
 
 export function createLevelPiece(world, piece, squareSize, colors) {
+  if (piece.type === "boostPad") {
+    return createBoostPadPiece(piece, squareSize);
+  }
   if (piece.type === "platform" || piece.type === "ramp") {
     return createRectanglePiece(world, piece, squareSize, colors);
   }

@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import {
+  boostPad,
   createLevelPiece,
   platform,
   quarterTurn,
@@ -20,12 +21,17 @@ const FINAL_SPIRAL = spiral({
   boundHeightScale: 2,
   capStart: false,
   capEnd: false,
+  boosts: {
+    intervalAngle: Math.PI / 2,
+    speed: 40,
+  },
   bounds: {
     inner: true,
     outer: true,
   },
 });
 const FINAL_TRACK_ELEVATION = FINAL_SPIRAL.elevation - FINAL_SPIRAL.drop;
+const JUMP_RISE = 1.1;
 
 const LEVELS = [
   {
@@ -49,7 +55,7 @@ const LEVELS = [
     fallY: FINAL_TRACK_ELEVATION - 5,
     colors: ["#fff9b8", "#f6c744", 0xaa6e16],
     finish: {
-      grid: [14.5, -23],
+      grid: [21.5, -23],
       y: FINAL_TRACK_ELEVATION + 0.51,
       radius: 2.3,
     },
@@ -100,14 +106,30 @@ const LEVELS = [
         at: [3, -16],
         elevation: 0.6,
       }),
+      boostPad({
+        cells: [1, 2],
+        at: [-1.5, -16],
+        elevation: 1.1,
+        direction: "west",
+        speed: 40,
+      }),
       FINAL_SPIRAL,
+      ramp({
+        cells: [2, 2],
+        at: [-1, -22],
+        direction: "east",
+        elevation: FINAL_TRACK_ELEVATION + JUMP_RISE / 2,
+        rise: JUMP_RISE,
+      }),
       platform({
-        cells: [4, 1],
-        at: [0, -22.5],
+        cells: [4, 2],
+        at: [7, -22],
         elevation: FINAL_TRACK_ELEVATION,
+        surfaceFriction: 0,
+        surfaceOnly: true,
       }),
       quarterTurn({
-        center: [2, -20],
+        center: [9, -20],
         innerRadiusCells: 2,
         widthCells: 1,
         startAngle: Math.PI * 1.5,
@@ -117,7 +139,7 @@ const LEVELS = [
         capEnd: false,
       }),
       quarterTurn({
-        center: [7, -20],
+        center: [14, -20],
         innerRadiusCells: 2,
         widthCells: 1,
         startAngle: Math.PI,
@@ -127,7 +149,7 @@ const LEVELS = [
         capEnd: false,
       }),
       quarterTurn({
-        center: [7, -20],
+        center: [14, -20],
         innerRadiusCells: 2,
         widthCells: 1,
         startAngle: Math.PI / 2,
@@ -137,7 +159,7 @@ const LEVELS = [
         capEnd: false,
       }),
       quarterTurn({
-        center: [12, -20],
+        center: [19, -20],
         innerRadiusCells: 2,
         widthCells: 1,
         startAngle: Math.PI,
@@ -148,7 +170,7 @@ const LEVELS = [
       }),
       platform({
         cells: [5, 4],
-        at: [14.5, -23],
+        at: [21.5, -23],
         elevation: FINAL_TRACK_ELEVATION,
       }),
     ],
@@ -190,6 +212,7 @@ export function createLevel(world, levelId, squareSize) {
   const definition = LEVELS[levelId] ?? LEVELS[0];
   const group = new THREE.Group();
   const bodies = [];
+  const boostPads = [];
 
   for (const pieceDefinition of definition.pieces) {
     const piece = createLevelPiece(
@@ -200,6 +223,7 @@ export function createLevel(world, levelId, squareSize) {
     );
     group.add(piece.visual);
     bodies.push(...piece.bodies);
+    boostPads.push(...(piece.boostPads ?? []));
   }
 
   const finish = definition.finish
@@ -221,6 +245,7 @@ export function createLevel(world, levelId, squareSize) {
     finish,
     group,
     bodies,
+    boostPads,
   };
 }
 

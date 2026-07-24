@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  boostPad,
   platform,
   quarterTurn,
   ramp,
@@ -10,7 +11,14 @@ import {
 
 test("level-piece helpers create composable typed definitions", () => {
   assert.equal(platform({ cells: [2, 3] }).type, "platform");
-  assert.equal(ramp({ cells: [2, 4], rise: 1.1 }).type, "ramp");
+  const northRamp = ramp({ cells: [2, 4], rise: 1.1 });
+  assert.equal(northRamp.type, "ramp");
+  assert.equal(northRamp.direction, "north");
+  assert.equal(ramp({ direction: "east" }).direction, "east");
+  const pad = boostPad({ direction: "west", speed: 36 });
+  assert.equal(pad.type, "boostPad");
+  assert.equal(pad.direction, "west");
+  assert.equal(pad.speed, 36);
 
   const turn = quarterTurn({ center: [3, 2], innerRadiusCells: 2 });
   assert.equal(turn.type, "quarterTurn");
@@ -68,6 +76,7 @@ test("spirals resolve every cardinal entry and exit combination", () => {
           turns: 1,
           innerRadiusCells: 2,
           slope: 0.5,
+          boosts: { intervalAngle: Math.PI / 2, speed: 40 },
         });
         const sweepSign = Math.sign(piece.sweepAngle);
         const tangentAt = (angle) => ({
@@ -82,6 +91,7 @@ test("spirals resolve every cardinal entry and exit combination", () => {
         assert.ok(Math.abs(endTangent.x - expectedEnd.x) < 1e-10);
         assert.ok(Math.abs(endTangent.z - expectedEnd.z) < 1e-10);
         assert.ok(piece.drop > 0);
+        assert.equal(piece.boosts.speed, 40);
       }
     }
   }

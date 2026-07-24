@@ -3,7 +3,7 @@ import RAPIER from "@dimforge/rapier3d-compat";
 import "./style.css";
 import { createBostonTerrier } from "./dog.js";
 import { createLevel, destroyLevel, getLevelCount } from "./levels.js";
-import { accelerateHorizontal } from "./movement.js";
+import { accelerateHorizontal, boostHorizontal } from "./movement.js";
 import { formatTime, reachesFinish } from "./timer.js";
 
 await RAPIER.init({});
@@ -129,6 +129,7 @@ let timerStartedAt = null;
 let timerElapsed = 0;
 let timerFinished = false;
 let timerReadyToStart = true;
+const occupiedBoostPads = new Set();
 
 const controlledKeys = new Set([
   "ArrowUp",
@@ -187,6 +188,7 @@ function resetBall() {
   camera.position.copy(cameraAnchor).add(CAMERA_OFFSET);
   camera.lookAt(cameraAnchor.x, cameraAnchor.y + 0.15, cameraAnchor.z);
   dogYaw = Math.PI;
+  occupiedBoostPads.clear();
   prepareTimer();
 }
 
@@ -286,6 +288,40 @@ function updateControls(delta) {
   }
 }
 
+function updateBoostPads() {
+  const position = ballBody.translation();
+  for (const pad of activeLevel.boostPads ?? []) {
+    const offsetX = position.x - pad.position.x;
+    const offsetZ = position.z - pad.position.z;
+    const forwardDistance = offsetX * pad.direction.x + offsetZ * pad.direction.z;
+    const lateralDistance = -offsetX * pad.direction.z + offsetZ * pad.direction.x;
+    const isInside = Math.abs(forwardDistance) <= pad.halfLength
+      && Math.abs(lateralDistance) <= pad.halfWidth
+      && Math.abs(position.y - (pad.position.y + BALL_RADIUS)) <= BALL_RADIUS * 0.6;
+
+    if (!isInside) {
+      occupiedBoostPads.delete(pad);
+      continue;
+    }
+    if (occupiedBoostPads.has(pad)) continue;
+    occupiedBoostPads.add(pad);
+
+    const velocity = ballBody.linvel();
+    const boostedVelocity = boostHorizontal(velocity, pad.direction, pad.speed);
+    ballBody.setLinvel(
+      { x: boostedVelocity.x, y: velocity.y, z: boostedVelocity.z },
+      true,
+    );
+    const angular = ballBody.angvel();
+    ballBody.setAngvel({
+      x: boostedVelocity.z / BALL_RADIUS,
+      y: angular.y,
+      z: -boostedVelocity.x / BALL_RADIUS,
+    }, true);
+    heading.set(pad.direction.x, 0, pad.direction.z);
+  }
+}
+
 function updateVisuals(delta, position, rotation) {
   ballVisual.position.set(position.x, position.y, position.z);
   ballVisual.quaternion.set(rotation.x, rotation.y, rotation.z, rotation.w);
@@ -344,6 +380,7 @@ function frame(time) {
     previousPhysicsPosition.copy(currentPhysicsPosition);
     previousPhysicsRotation.copy(currentPhysicsRotation);
     updateControls(PHYSICS_TIMESTEP);
+    updateBoostPads();
     world.step();
 
     const position = ballBody.translation();

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { accelerateHorizontal } from "../src/movement.js";
+import { accelerateHorizontal, boostHorizontal } from "../src/movement.js";
 
 test("opposing input slows and reverses velocity at a fixed rate", () => {
   let velocity = { x: 0, z: -12 };
@@ -70,4 +70,15 @@ test("input can steer or brake momentum above the top speed", () => {
   assert.ok(steered.z > 0);
   assert.ok(Math.abs(Math.hypot(steered.x, steered.z) - 30) < 1e-10);
   assert.equal(Math.hypot(braked.x, braked.z), 28.5);
+});
+
+test("boost pads establish a minimum speed without removing lateral momentum", () => {
+  assert.deepEqual(
+    boostHorizontal({ x: -8, z: 3 }, { x: -1, z: 0 }, 52),
+    { x: -52, z: 3 },
+  );
+  assert.deepEqual(
+    boostHorizontal({ x: -60, z: 3 }, { x: -1, z: 0 }, 52),
+    { x: -60, z: 3 },
+  );
 });

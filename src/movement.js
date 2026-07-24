@@ -13,3 +13,12 @@ export function accelerateHorizontal(velocity, direction, acceleration, delta, m
 
   return { x, z };
 }
+
+export function boostHorizontal(velocity, direction, minimumForwardSpeed) {
+  const forwardSpeed = velocity.x * direction.x + velocity.z * direction.z;
+  const addedSpeed = Math.max(minimumForwardSpeed - forwardSpeed, 0);
+  return {
+    x: velocity.x + direction.x * addedSpeed,
+    z: velocity.z + direction.z * addedSpeed,
+  };
+}
