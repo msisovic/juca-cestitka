@@ -7,6 +7,11 @@ import {
   getRampVertices,
 } from "./checkerboard.js";
 
+const SURFACE_FRICTION = 1.35;
+const WALL_FRICTION = SURFACE_FRICTION / 10;
+const SURFACE_SEPARATION = 0.01;
+const QUAD_INDICES = [0, 1, 2, 0, 2, 3];
+
 export function platform(options) {
   return { type: "platform", ...options };
 }
@@ -25,9 +30,43 @@ function createFixedBody(world, position) {
   );
 }
 
-function addCollider(world, body, descriptor) {
+function addCollider(
+  world,
+  body,
+  descriptor,
+  friction = SURFACE_FRICTION,
+  combineRule,
+) {
   if (!descriptor) throw new Error("Could not create level-piece collider.");
-  world.createCollider(descriptor.setFriction(1.35), body);
+  descriptor.setFriction(friction);
+  if (combineRule !== undefined) {
+    descriptor.setFrictionCombineRule(combineRule);
+  }
+  world.createCollider(descriptor, body);
+}
+
+function addWallCollider(world, body, height, createDescriptor) {
+  const wallDescriptor = createDescriptor(height - SURFACE_SEPARATION);
+  if (wallDescriptor) wallDescriptor.setTranslation(0, -SURFACE_SEPARATION / 2, 0);
+  addCollider(
+    world,
+    body,
+    wallDescriptor,
+    WALL_FRICTION,
+    RAPIER.CoefficientCombineRule.Min,
+  );
+}
+
+function addSurfaceCollider(world, body, vertices, indices = QUAD_INDICES) {
+  addCollider(
+    world,
+    body,
+    RAPIER.ColliderDesc.trimesh(
+      new Float32Array(vertices.flat()),
+      new Uint32Array(indices),
+      RAPIER.TriMeshFlags.FIX_INTERNAL_EDGES,
+    ),
+  );
 }
 
 function validateGridRectangle(piece) {
@@ -73,19 +112,39 @@ function createRectanglePiece(world, piece, squareSize, colors) {
   const body = createFixedBody(world, position);
 
   if (piece.type === "ramp") {
-    addCollider(
+    addWallCollider(
       world,
       body,
-      RAPIER.ColliderDesc.convexHull(new Float32Array(
-        getRampVertices(...size, piece.rise).flat(),
+      size[1],
+      (height) => RAPIER.ColliderDesc.convexHull(new Float32Array(
+        getRampVertices(size[0], height, size[2], piece.rise).flat(),
       )),
     );
-  } else {
-    addCollider(
+    addSurfaceCollider(
       world,
       body,
-      RAPIER.ColliderDesc.cuboid(size[0] / 2, size[1] / 2, size[2] / 2),
+      getRampVertices(...size, piece.rise).slice(0, 4),
     );
+  } else {
+    addWallCollider(
+      world,
+      body,
+      size[1],
+      (height) => RAPIER.ColliderDesc.cuboid(
+        size[0] / 2,
+        height / 2,
+        size[2] / 2,
+      ),
+    );
+    const halfWidth = size[0] / 2;
+    const top = size[1] / 2;
+    const halfDepth = size[2] / 2;
+    addSurfaceCollider(world, body, [
+      [-halfWidth, top, halfDepth],
+      [halfWidth, top, halfDepth],
+      [halfWidth, top, -halfDepth],
+      [-halfWidth, top, -halfDepth],
+    ]);
   }
 
   return { visual, bodies: [body] };
@@ -125,23 +184,37 @@ function createQuarterTurnPiece(world, piece, squareSize, colors) {
   });
   const body = createFixedBody(world, position);
   const angleStep = Math.PI / 2 / piece.segments;
+  const surfaceVertices = [];
+  const surfaceIndices = [];
 
   for (let index = 0; index < piece.segments; index += 1) {
     const angle = piece.startAngle + index * angleStep;
-    addCollider(
+    addWallCollider(
       world,
       body,
-      RAPIER.ColliderDesc.convexHull(new Float32Array(
+      height,
+      (colliderHeight) => RAPIER.ColliderDesc.convexHull(new Float32Array(
         getQuarterTurnSegmentVertices(
           innerRadius,
           outerRadius,
-          height,
+          colliderHeight,
           angle,
           angle + angleStep,
         ).flat(),
       )),
     );
+    const topVertices = getQuarterTurnSegmentVertices(
+      innerRadius,
+      outerRadius,
+      height,
+      angle,
+      angle + angleStep,
+    ).slice(0, 4);
+    const vertexOffset = surfaceVertices.length;
+    surfaceVertices.push(...topVertices);
+    surfaceIndices.push(...QUAD_INDICES.map((vertex) => vertex + vertexOffset));
   }
+  addSurfaceCollider(world, body, surfaceVertices, surfaceIndices);
 
   return { visual, bodies: [body] };
 }
