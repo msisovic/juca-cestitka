@@ -178,6 +178,152 @@ export function createCheckerboardRamp({
   return ramp;
 }
 
+export function getQuarterTurnSegmentVertices(
+  innerRadius,
+  outerRadius,
+  height,
+  startAngle,
+  endAngle,
+) {
+  const top = height / 2;
+  const bottom = -height / 2;
+  const point = (radius, angle, y) => [
+    Math.cos(angle) * radius,
+    y,
+    Math.sin(angle) * radius,
+  ];
+
+  return [
+    point(innerRadius, startAngle, top),
+    point(innerRadius, endAngle, top),
+    point(outerRadius, endAngle, top),
+    point(outerRadius, startAngle, top),
+    point(innerRadius, startAngle, bottom),
+    point(innerRadius, endAngle, bottom),
+    point(outerRadius, endAngle, bottom),
+    point(outerRadius, startAngle, bottom),
+  ];
+}
+
+export function createCheckerboardQuarterTurn({
+  position,
+  height,
+  innerRadius,
+  width,
+  startAngle,
+  segments = 12,
+  capStart = true,
+  capEnd = true,
+  squareSize,
+  lightColor = "#ffffff",
+  darkColor = "#d027ad",
+  sideColor = 0x8e0876,
+}) {
+  const outerRadius = innerRadius + width;
+  const angleStep = Math.PI / 2 / segments;
+  const segmentCorners = [];
+  const boundsPoints = [];
+
+  for (let index = 0; index < segments; index += 1) {
+    const angle = startAngle + index * angleStep;
+    const nextAngle = angle + angleStep;
+    segmentCorners.push(getQuarterTurnSegmentVertices(
+      innerRadius,
+      outerRadius,
+      height,
+      angle,
+      nextAngle,
+    ));
+    for (const radius of [innerRadius, outerRadius]) {
+      boundsPoints.push([
+        position[0] + Math.cos(angle) * radius,
+        position[2] + Math.sin(angle) * radius,
+      ]);
+      if (index === segments - 1) {
+        boundsPoints.push([
+          position[0] + Math.cos(nextAngle) * radius,
+          position[2] + Math.sin(nextAngle) * radius,
+        ]);
+      }
+    }
+  }
+
+  const worldXs = boundsPoints.map(([x]) => x);
+  const worldZs = boundsPoints.map(([, z]) => z);
+  const minX = Math.min(...worldXs);
+  const maxX = Math.max(...worldXs);
+  const minZ = Math.min(...worldZs);
+  const maxZ = Math.max(...worldZs);
+  const texturePosition = [(minX + maxX) / 2, position[1], (minZ + maxZ) / 2];
+  const materials = createPlatformMaterials(
+    maxX - minX,
+    maxZ - minZ,
+    texturePosition,
+    squareSize,
+    lightColor,
+    darkColor,
+    sideColor,
+  );
+
+  const positions = [];
+  const uvs = [];
+  const indices = [];
+  const geometry = new THREE.BufferGeometry();
+
+  function topUv(vertex) {
+    const worldX = position[0] + vertex[0];
+    const worldZ = position[2] + vertex[2];
+    return [
+      (worldX - minX) / (maxX - minX),
+      (maxZ - worldZ) / (maxZ - minZ),
+    ];
+  }
+
+  function addFace(vertices, materialIndex, faceUvs) {
+    const startVertex = positions.length / 3;
+    const startIndex = indices.length;
+    for (let index = 0; index < 4; index += 1) {
+      positions.push(...vertices[index]);
+      uvs.push(...faceUvs[index]);
+    }
+    indices.push(
+      startVertex,
+      startVertex + 1,
+      startVertex + 2,
+      startVertex,
+      startVertex + 2,
+      startVertex + 3,
+    );
+    geometry.addGroup(startIndex, 6, materialIndex);
+  }
+
+  const standardUvs = [[0, 0], [1, 0], [1, 1], [0, 1]];
+  segmentCorners.forEach((corners) => {
+    const topFace = [corners[0], corners[1], corners[2], corners[3]];
+    addFace(topFace, 1, topFace.map(topUv));
+    addFace([corners[4], corners[7], corners[6], corners[5]], 0, standardUvs);
+    addFace([corners[4], corners[5], corners[1], corners[0]], 0, standardUvs);
+    addFace([corners[7], corners[3], corners[2], corners[6]], 0, standardUvs);
+  });
+  const first = segmentCorners[0];
+  const last = segmentCorners.at(-1);
+  if (capStart) {
+    addFace([first[4], first[0], first[3], first[7]], 0, standardUvs);
+  }
+  if (capEnd) {
+    addFace([last[5], last[6], last[2], last[1]], 0, standardUvs);
+  }
+
+  geometry.setIndex(indices);
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.computeVertexNormals();
+
+  const turn = new THREE.Mesh(geometry, [materials.side, materials.top]);
+  turn.position.set(...position);
+  return turn;
+}
+
 export function createCheckerboard(size = 80, squareSize = 4) {
   const group = new THREE.Group();
   group.add(createCheckerboardPlatform({
