@@ -4,6 +4,7 @@ import "./style.css";
 import { createBostonTerrier } from "./dog.js";
 import { createLevel, destroyLevel, getLevelCount } from "./levels.js";
 import { accelerateHorizontal } from "./movement.js";
+import { formatTime, reachesFinish } from "./timer.js";
 
 await RAPIER.init({});
 
@@ -14,6 +15,7 @@ const CONTROL_ACCELERATION = 15;
 const CAMERA_OFFSET = new THREE.Vector3(0, 8.85, 13.2);
 const PHYSICS_TIMESTEP = 1 / 120;
 const MAX_FRAME_DELTA = 1 / 20;
+const timerElement = document.querySelector("#timer");
 
 const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.25));
@@ -123,6 +125,10 @@ const shadowRay = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: -1, z: 0 });
 let dogYaw = Math.PI;
 let physicsAccumulator = 0;
 let activeLevel;
+let timerStartedAt = null;
+let timerElapsed = 0;
+let timerFinished = false;
+let timerReadyToStart = true;
 
 const controlledKeys = new Set([
   "ArrowUp",
@@ -181,6 +187,41 @@ function resetBall() {
   camera.position.copy(cameraAnchor).add(CAMERA_OFFSET);
   camera.lookAt(cameraAnchor.x, cameraAnchor.y + 0.15, cameraAnchor.z);
   dogYaw = Math.PI;
+  prepareTimer();
+}
+
+function prepareTimer() {
+  if (timerStartedAt !== null) {
+    timerElapsed = performance.now() - timerStartedAt;
+    timerElement.textContent = formatTime(timerElapsed);
+  }
+  timerStartedAt = null;
+  timerReadyToStart = true;
+  timerElement.hidden = !activeLevel?.finish;
+}
+
+function startTimer() {
+  if (!activeLevel?.finish || !timerReadyToStart) return;
+  timerElapsed = 0;
+  timerFinished = false;
+  timerReadyToStart = false;
+  timerElement.textContent = formatTime(0);
+  timerStartedAt = performance.now();
+}
+
+function stopTimer() {
+  if (timerStartedAt === null || timerFinished) return;
+  timerElapsed = performance.now() - timerStartedAt;
+  timerStartedAt = null;
+  timerFinished = true;
+  timerReadyToStart = false;
+  timerElement.textContent = formatTime(timerElapsed);
+}
+
+function updateTimer(time) {
+  if (timerStartedAt === null) return;
+  timerElapsed = time - timerStartedAt;
+  timerElement.textContent = formatTime(timerElapsed);
 }
 
 function switchLevel(levelId) {
@@ -220,6 +261,7 @@ function updateControls(delta) {
   const velocity = ballBody.linvel();
 
   if (movement.lengthSq() > 0) {
+    startTimer();
     movement.normalize();
     const nextVelocity = accelerateHorizontal(
       velocity,
@@ -308,6 +350,12 @@ function frame(time) {
     const rotation = ballBody.rotation();
     currentPhysicsPosition.set(position.x, position.y, position.z);
     currentPhysicsRotation.set(rotation.x, rotation.y, rotation.z, rotation.w);
+    if (
+      timerStartedAt !== null
+      && reachesFinish(previousPhysicsPosition, currentPhysicsPosition, activeLevel.finish)
+    ) {
+      stopTimer();
+    }
     physicsAccumulator -= PHYSICS_TIMESTEP;
   }
 
@@ -322,6 +370,7 @@ function frame(time) {
   );
   updateVisuals(delta, renderPosition, renderRotation);
   updateCamera(delta, renderPosition);
+  updateTimer(time);
 
   renderer.render(scene, camera);
 }

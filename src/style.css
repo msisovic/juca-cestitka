@@ -38,6 +38,21 @@ canvas {
   text-shadow: 1px 1px 0 rgb(70 0 58 / 55%);
 }
 
+.timer {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: rgb(255 255 255 / 88%);
+  font-family: inherit;
+  font-size: 24px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.06em;
+  pointer-events: none;
+  text-shadow: 1px 1px 0 rgb(70 0 58 / 55%);
+}
+
 .controls {
   position: fixed;
   right: 18px;
