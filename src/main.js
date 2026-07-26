@@ -10,6 +10,7 @@ import {
   hasClaimedGift,
   resetGift,
 } from "./gift.js";
+import { isCrashLanding } from "./impact.js";
 import { createCourse } from "./course.js";
 import {
   accelerateHorizontal,
@@ -27,6 +28,7 @@ const CONTROL_ACCELERATION = 15;
 const CAMERA_OFFSET = new THREE.Vector3(0, 8.85, 13.2);
 const PHYSICS_TIMESTEP = 1 / 120;
 const MAX_FRAME_DELTA = 1 / 20;
+const CRASH_DURATION = 0.9;
 const SKY_COLOR = 0x67c8ff;
 const timerElement = document.querySelector("#timer");
 const giftReveal = new GiftReveal();
@@ -131,6 +133,38 @@ shadow.rotation.x = -Math.PI / 2;
 shadow.position.y = 0.025;
 scene.add(shadow);
 
+function createStarGeometry() {
+  const shape = new THREE.Shape();
+  for (let point = 0; point < 10; point += 1) {
+    const angle = Math.PI / 2 + point * Math.PI / 5;
+    const radius = point % 2 === 0 ? 0.28 : 0.12;
+    const x = Math.cos(angle) * radius;
+    const y = Math.sin(angle) * radius;
+    if (point === 0) shape.moveTo(x, y);
+    else shape.lineTo(x, y);
+  }
+  shape.closePath();
+  return new THREE.ShapeGeometry(shape);
+}
+
+const crashEffect = new THREE.Group();
+const crashStarGeometry = createStarGeometry();
+for (let index = 0; index < 6; index += 1) {
+  const star = new THREE.Mesh(
+    crashStarGeometry,
+    new THREE.MeshBasicMaterial({
+      color: index % 2 === 0 ? 0xffdf3e : 0xffffff,
+      side: THREE.DoubleSide,
+      depthTest: false,
+    }),
+  );
+  star.userData.angle = index / 6 * Math.PI * 2;
+  star.renderOrder = 5;
+  crashEffect.add(star);
+}
+crashEffect.visible = false;
+scene.add(crashEffect);
+
 const pressed = new Set();
 const movement = new THREE.Vector3();
 const heading = new THREE.Vector3(0, 0, -1);
@@ -156,6 +190,10 @@ let timerFinished = false;
 let timerReadyToStart = true;
 let courseAnimationTime = 0;
 let checkpointActive = false;
+let crashActive = false;
+let crashElapsed = 0;
+let wasSupported = true;
+let airbornePeakY = courseStart.y;
 const occupiedBoostPads = new Set();
 
 const controlledKeys = new Set([
@@ -191,9 +229,13 @@ window.addEventListener("keyup", (event) => {
 window.addEventListener("blur", () => pressed.clear());
 
 function resetBall({ fromFall = false } = {}) {
-  const useCheckpoint = fromFall && checkpointActive && course?.checkpoint;
+  const useCheckpoint = Boolean(fromFall && checkpointActive && course?.checkpoint);
   const spawn = useCheckpoint ? course.checkpoint.spawn : course?.start ?? courseStart;
   if (!useCheckpoint) checkpointActive = false;
+  crashActive = false;
+  crashElapsed = 0;
+  crashEffect.visible = false;
+  ballBody.setEnabled(true);
   pressed.clear();
   ballBody.resetForces(true);
   ballBody.resetTorques(true);
@@ -214,6 +256,8 @@ function resetBall({ fromFall = false } = {}) {
   camera.position.copy(cameraAnchor).add(CAMERA_OFFSET);
   camera.lookAt(cameraAnchor.x, cameraAnchor.y + 0.15, cameraAnchor.z);
   dogYaw = Math.PI;
+  wasSupported = true;
+  airbornePeakY = spawn.y;
   occupiedBoostPads.clear();
   if (!useCheckpoint) prepareTimer();
 }
@@ -294,8 +338,57 @@ function getRailSurfaceNormal(position) {
   return null;
 }
 
+function isBallSupported() {
+  let supported = false;
+  world.contactPairsWith(ballCollider, (collider) => {
+    world.contactPair(ballCollider, collider, (manifold) => {
+      if (
+        manifold.numSolverContacts() > 0
+        && Math.abs(manifold.normal().y) >= 0.35
+      ) supported = true;
+    });
+  });
+  return supported;
+}
+
+function startCrash(position, rotation) {
+  crashActive = true;
+  crashElapsed = 0;
+  pressed.clear();
+  ballBody.setLinvel({ x: 0, y: 0, z: 0 }, true);
+  ballBody.setAngvel({ x: 0, y: 0, z: 0 }, true);
+  ballBody.setEnabled(false);
+  previousPhysicsPosition.set(position.x, position.y, position.z);
+  currentPhysicsPosition.copy(previousPhysicsPosition);
+  renderPosition.copy(previousPhysicsPosition);
+  previousPhysicsRotation.set(rotation.x, rotation.y, rotation.z, rotation.w);
+  currentPhysicsRotation.copy(previousPhysicsRotation);
+  renderRotation.copy(previousPhysicsRotation);
+  crashEffect.position.set(position.x, position.y + 0.45, position.z);
+  crashEffect.visible = true;
+}
+
+function updateCrashEffect(delta) {
+  if (!crashActive) return;
+  crashElapsed += delta;
+  const progress = Math.min(crashElapsed / CRASH_DURATION, 1);
+  for (let index = 0; index < crashEffect.children.length; index += 1) {
+    const star = crashEffect.children[index];
+    const angle = star.userData.angle + progress * Math.PI * 1.4;
+    const radius = 0.35 + progress * 1.65;
+    star.position.set(
+      Math.cos(angle) * radius,
+      0.2 + Math.sin(progress * Math.PI) * (0.8 + index % 2 * 0.25),
+      Math.sin(angle) * 0.35,
+    );
+    star.rotation.z = angle + progress * Math.PI * 2;
+    star.scale.setScalar(1 - progress * 0.35);
+  }
+  if (progress >= 1) resetBall({ fromFall: true });
+}
+
 function updateControls(delta) {
-  if (giftReveal.active) return;
+  if (giftReveal.active || crashActive) return;
   const x = Number(pressed.has("KeyD") || pressed.has("ArrowRight"))
     - Number(pressed.has("KeyA") || pressed.has("ArrowLeft"));
   const z = Number(pressed.has("KeyW") || pressed.has("ArrowUp"))
@@ -471,20 +564,45 @@ function frame(time) {
   requestAnimationFrame(frame);
   const delta = Math.min((time - previousTime) / 1000, MAX_FRAME_DELTA);
   previousTime = time;
-  physicsAccumulator += delta;
+  if (crashActive) physicsAccumulator = 0;
+  else physicsAccumulator += delta;
 
-  while (physicsAccumulator >= PHYSICS_TIMESTEP) {
+  while (!crashActive && physicsAccumulator >= PHYSICS_TIMESTEP) {
     previousPhysicsPosition.copy(currentPhysicsPosition);
     previousPhysicsRotation.copy(currentPhysicsRotation);
     updateCourseAnimations(PHYSICS_TIMESTEP);
     updateControls(PHYSICS_TIMESTEP);
     updateBoostPads();
+    const stepVelocity = ballBody.linvel();
+    const velocityBeforeStep = {
+      x: stepVelocity.x,
+      y: stepVelocity.y,
+      z: stepVelocity.z,
+    };
     world.step();
 
     const position = ballBody.translation();
     const rotation = ballBody.rotation();
     currentPhysicsPosition.set(position.x, position.y, position.z);
     currentPhysicsRotation.set(rotation.x, rotation.y, rotation.z, rotation.w);
+    const supported = isBallSupported();
+    if (supported) {
+      const fallDistance = airbornePeakY - position.y;
+      if (
+        !wasSupported
+        && isCrashLanding(fallDistance, velocityBeforeStep)
+      ) {
+        startCrash(position, rotation);
+        wasSupported = true;
+        airbornePeakY = position.y;
+        physicsAccumulator = 0;
+        break;
+      }
+      airbornePeakY = position.y;
+    } else {
+      airbornePeakY = Math.max(airbornePeakY, position.y);
+    }
+    wasSupported = supported;
     if (
       !checkpointActive
       && touchesCheckpoint(position, course.checkpoint, BALL_RADIUS)
@@ -500,7 +618,10 @@ function frame(time) {
     physicsAccumulator -= PHYSICS_TIMESTEP;
   }
 
-  if (ballBody.translation().y < course.fallY) resetBall({ fromFall: true });
+  if (!crashActive && ballBody.translation().y < course.fallY) {
+    resetBall({ fromFall: true });
+  }
+  updateCrashEffect(delta);
 
   const interpolation = physicsAccumulator / PHYSICS_TIMESTEP;
   renderPosition.lerpVectors(previousPhysicsPosition, currentPhysicsPosition, interpolation);
