@@ -153,10 +153,11 @@ export function createGlasses() {
     specular: 0xffc78a,
   });
   const lensMaterial = new THREE.MeshPhongMaterial({
-    color: 0x744b58,
+    color: 0xffffff,
     transparent: true,
-    opacity: 0.55,
+    opacity: 0.18,
     shininess: 100,
+    specular: 0xffffff,
     side: THREE.DoubleSide,
     depthWrite: false,
   });

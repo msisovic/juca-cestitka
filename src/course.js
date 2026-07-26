@@ -45,6 +45,12 @@ const COURSE = {
       y: FINAL_TRACK_ELEVATION + 0.51,
       radius: 2.3,
     },
+    checkpoint: {
+      grid: [24, -18],
+      cells: [4, 4],
+      surfaceY: FINAL_TRACK_SURFACE,
+      spawnGrid: [24.5, -18],
+    },
     pieces: [
       platform({
         cells: [5, 5],
@@ -258,11 +264,26 @@ export function createCourse(world, squareSize) {
     position: finish.position.toArray(),
     radius: finish.radius,
   }));
+  const checkpoint = definition.checkpoint
+    ? {
+        center: resolvePoint({
+          grid: definition.checkpoint.grid,
+          y: definition.checkpoint.surfaceY,
+        }, squareSize),
+        halfWidth: definition.checkpoint.cells[0] * squareSize / 2,
+        halfDepth: definition.checkpoint.cells[1] * squareSize / 2,
+        spawn: resolvePoint({
+          grid: definition.checkpoint.spawnGrid,
+          y: definition.checkpoint.surfaceY + squareSize / 2 + 0.08,
+        }, squareSize),
+      }
+    : null;
 
   return {
     start: resolvePoint(definition.start, squareSize),
     fallY: definition.fallY ?? -8,
     finish,
+    checkpoint,
     group,
     bodies,
     boostPads,

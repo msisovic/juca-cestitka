@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import RAPIER from "@dimforge/rapier3d-compat";
 import "./style.css";
+import { touchesCheckpoint } from "./checkpoint.js";
 import { createBostonTerrier } from "./dog.js";
 import {
   claimGift,
@@ -154,6 +155,7 @@ let timerElapsed = 0;
 let timerFinished = false;
 let timerReadyToStart = true;
 let courseAnimationTime = 0;
+let checkpointActive = false;
 const occupiedBoostPads = new Set();
 
 const controlledKeys = new Set([
@@ -188,8 +190,10 @@ window.addEventListener("keyup", (event) => {
 
 window.addEventListener("blur", () => pressed.clear());
 
-function resetBall() {
-  const spawn = course?.start ?? courseStart;
+function resetBall({ fromFall = false } = {}) {
+  const useCheckpoint = fromFall && checkpointActive && course?.checkpoint;
+  const spawn = useCheckpoint ? course.checkpoint.spawn : course?.start ?? courseStart;
+  if (!useCheckpoint) checkpointActive = false;
   pressed.clear();
   ballBody.resetForces(true);
   ballBody.resetTorques(true);
@@ -211,7 +215,7 @@ function resetBall() {
   camera.lookAt(cameraAnchor.x, cameraAnchor.y + 0.15, cameraAnchor.z);
   dogYaw = Math.PI;
   occupiedBoostPads.clear();
-  prepareTimer();
+  if (!useCheckpoint) prepareTimer();
 }
 
 function prepareTimer() {
@@ -482,16 +486,21 @@ function frame(time) {
     currentPhysicsPosition.set(position.x, position.y, position.z);
     currentPhysicsRotation.set(rotation.x, rotation.y, rotation.z, rotation.w);
     if (
+      !checkpointActive
+      && touchesCheckpoint(position, course.checkpoint, BALL_RADIUS)
+    ) checkpointActive = true;
+    if (
       timerStartedAt !== null
       && reachesFinish(previousPhysicsPosition, currentPhysicsPosition, course.finish)
     ) {
+      checkpointActive = false;
       stopTimer();
       revealGift();
     }
     physicsAccumulator -= PHYSICS_TIMESTEP;
   }
 
-  if (ballBody.translation().y < course.fallY) resetBall();
+  if (ballBody.translation().y < course.fallY) resetBall({ fromFall: true });
 
   const interpolation = physicsAccumulator / PHYSICS_TIMESTEP;
   renderPosition.lerpVectors(previousPhysicsPosition, currentPhysicsPosition, interpolation);
