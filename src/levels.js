@@ -5,6 +5,7 @@ import {
   hammer,
   platform,
   quarterTurn,
+  rail,
   ramp,
   spiral,
 } from "./level-pieces.js";
@@ -19,7 +20,7 @@ const FINAL_SPIRAL = spiral({
   clockwise: true,
   slope: 1.3,
   elevation: 0.6,
-  boundHeightScale: 2,
+  boundHeightScale: 3,
   capStart: false,
   capEnd: false,
   boosts: {
@@ -57,7 +58,7 @@ const LEVELS = [
     fallY: FINAL_TRACK_ELEVATION - 5,
     colors: ["#fff9b8", "#f6c744", 0xaa6e16],
     finish: {
-      grid: [24.5, -43],
+      grid: [24.5, -67],
       y: FINAL_TRACK_ELEVATION + 0.51,
       radius: 2.3,
     },
@@ -178,9 +179,34 @@ const LEVELS = [
         phase: 0,
         period: 2.6,
       })),
+      rail({
+        at: [25.5, -44],
+        surfaceY: FINAL_TRACK_SURFACE,
+        lengthCells: 6,
+      }),
+      platform({
+        cells: [3, 3],
+        at: [24.5, -48.5],
+        elevation: FINAL_TRACK_ELEVATION,
+      }),
+      rail({
+        at: [23.5, -53],
+        surfaceY: FINAL_TRACK_SURFACE,
+        lengthCells: 6,
+      }),
+      platform({
+        cells: [3, 3],
+        at: [24.5, -57.5],
+        elevation: FINAL_TRACK_ELEVATION,
+      }),
+      rail({
+        at: [24.5, -62],
+        surfaceY: FINAL_TRACK_SURFACE,
+        lengthCells: 6,
+      }),
       platform({
         cells: [5, 4],
-        at: [24.5, -43],
+        at: [24.5, -67],
         elevation: FINAL_TRACK_ELEVATION,
       }),
     ],

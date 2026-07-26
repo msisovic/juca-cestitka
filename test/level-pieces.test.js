@@ -5,6 +5,7 @@ import {
   hammer,
   platform,
   quarterTurn,
+  rail,
   ramp,
   resolveBoundUnits,
   spiral,
@@ -24,6 +25,10 @@ test("level-piece helpers create composable typed definitions", () => {
   assert.equal(obstacle.type, "hammer");
   assert.equal(obstacle.travelDirection, "north");
   assert.equal(obstacle.spinDirection, -1);
+  const beam = rail({ lengthCells: 6, widthCells: 0.4 });
+  assert.equal(beam.type, "rail");
+  assert.equal(beam.direction, "north");
+  assert.equal(beam.lengthCells, 6);
 
   const turn = quarterTurn({ center: [3, 2], innerRadiusCells: 2 });
   assert.equal(turn.type, "quarterTurn");

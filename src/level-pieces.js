@@ -68,6 +68,16 @@ export function hammer(options) {
   };
 }
 
+export function rail(options) {
+  return {
+    type: "rail",
+    direction: "north",
+    widthCells: 0.4,
+    color: 0x2784e6,
+    ...options,
+  };
+}
+
 function rotateAroundY([x, y, z], angle) {
   const cosine = Math.cos(angle);
   const sine = Math.sin(angle);
@@ -744,6 +754,45 @@ function createHammerPiece(world, piece, squareSize) {
   };
 }
 
+function createRailPiece(world, piece, squareSize) {
+  const direction = CARDINAL_VECTORS[piece.direction];
+  if (!direction) throw new Error(`Unknown rail direction: ${piece.direction}`);
+  if (!Number.isFinite(piece.lengthCells) || piece.lengthCells <= 0) {
+    throw new Error("Rail length must be positive.");
+  }
+  if (!Number.isFinite(piece.widthCells) || piece.widthCells <= 0) {
+    throw new Error("Rail width must be positive.");
+  }
+  const length = piece.lengthCells * squareSize;
+  const radius = piece.widthCells * squareSize / 2;
+  const runsAlongX = direction[0] !== 0;
+  const position = [
+    piece.at[0] * squareSize,
+    piece.surfaceY - radius,
+    piece.at[1] * squareSize,
+  ];
+  const visual = new THREE.Mesh(
+    new THREE.CylinderGeometry(radius, radius, length, 12),
+    new THREE.MeshLambertMaterial({ color: piece.color }),
+  );
+  visual.position.set(...position);
+  if (runsAlongX) visual.rotation.z = Math.PI / 2;
+  else visual.rotation.x = Math.PI / 2;
+
+  const body = createFixedBody(world, position);
+  const rotation = runsAlongX
+    ? { x: 0, y: 0, z: Math.SQRT1_2, w: Math.SQRT1_2 }
+    : { x: Math.SQRT1_2, y: 0, z: 0, w: Math.SQRT1_2 };
+  addCollider(
+    world,
+    body,
+    RAPIER.ColliderDesc.cylinder(length / 2, radius).setRotation(rotation),
+    SURFACE_FRICTION,
+  );
+
+  return { visual, bodies: [body] };
+}
+
 function createSpiralBoosts(
   piece,
   position,
@@ -1095,6 +1144,9 @@ export function createLevelPiece(world, piece, squareSize, colors) {
   }
   if (piece.type === "hammer") {
     return createHammerPiece(world, piece, squareSize);
+  }
+  if (piece.type === "rail") {
+    return createRailPiece(world, piece, squareSize);
   }
   if (piece.type === "platform" || piece.type === "ramp") {
     return createRectanglePiece(world, piece, squareSize, colors);
