@@ -1,14 +1,14 @@
 import * as THREE from "three";
 import {
   boostPad,
-  createLevelPiece,
+  createCoursePiece,
   hammer,
   platform,
   quarterTurn,
   rail,
   ramp,
   spiral,
-} from "./level-pieces.js";
+} from "./course-pieces.js";
 
 const FINAL_SPIRAL = spiral({
   center: [-2, -19],
@@ -36,24 +36,7 @@ const FINAL_TRACK_ELEVATION = FINAL_SPIRAL.elevation - FINAL_SPIRAL.drop;
 const FINAL_TRACK_SURFACE = FINAL_TRACK_ELEVATION + 0.5;
 const JUMP_RISE = 1.1;
 
-const LEVELS = [
-  {
-    id: 0,
-    name: "DEV PLANE",
-    start: { grid: [0, 3], y: 1.36 },
-    colors: ["#ffffff", "#d027ad", 0x8e0876],
-    pieces: [
-      platform({
-        cells: [32, 32],
-        at: [0, 0],
-        height: 1.25,
-        elevation: -0.625,
-      }),
-    ],
-  },
-  {
-    id: 1,
-    name: "FIRST RUN",
+const COURSE = {
     start: { grid: [0, 6], y: 1.36 },
     fallY: FINAL_TRACK_ELEVATION - 5,
     colors: ["#fff9b8", "#f6c744", 0xaa6e16],
@@ -210,8 +193,7 @@ const LEVELS = [
         elevation: FINAL_TRACK_ELEVATION,
       }),
     ],
-  },
-];
+};
 
 function resolvePoint(point, squareSize) {
   return new THREE.Vector3(
@@ -244,15 +226,15 @@ function createFinishTarget(finish) {
   return target;
 }
 
-export function createLevel(world, levelId, squareSize) {
-  const definition = LEVELS[levelId] ?? LEVELS[0];
+export function createCourse(world, squareSize) {
+  const definition = COURSE;
   const group = new THREE.Group();
   const bodies = [];
   const boostPads = [];
   const animatedBodies = [];
 
   for (const pieceDefinition of definition.pieces) {
-    const piece = createLevelPiece(
+    const piece = createCoursePiece(
       world,
       pieceDefinition,
       squareSize,
@@ -276,8 +258,6 @@ export function createLevel(world, levelId, squareSize) {
   }));
 
   return {
-    id: definition.id,
-    name: definition.name,
     start: resolvePoint(definition.start, squareSize),
     fallY: definition.fallY ?? -8,
     finish,
@@ -286,22 +266,4 @@ export function createLevel(world, levelId, squareSize) {
     boostPads,
     animatedBodies,
   };
-}
-
-export function destroyLevel(world, level) {
-  for (const body of level.bodies) world.removeRigidBody(body);
-
-  level.group.traverse((child) => {
-    if (!child.isMesh) return;
-    child.geometry.dispose();
-    const materials = Array.isArray(child.material) ? child.material : [child.material];
-    for (const material of new Set(materials)) {
-      material.map?.dispose();
-      material.dispose();
-    }
-  });
-}
-
-export function getLevelCount() {
-  return LEVELS.length;
 }

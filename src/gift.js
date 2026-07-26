@@ -1,30 +1,30 @@
 import * as THREE from "three";
 
-const STORAGE_PREFIX = "boston-ball:gift:v1:";
+const STORAGE_KEY = "boston-ball:gift:v1";
 
-export function giftStorageKey(levelId) {
-  return `${STORAGE_PREFIX}${levelId}`;
+export function giftStorageKey() {
+  return STORAGE_KEY;
 }
 
-export function hasClaimedGift(levelId) {
+export function hasClaimedGift() {
   try {
-    return window.localStorage.getItem(giftStorageKey(levelId)) === "claimed";
+    return window.localStorage.getItem(STORAGE_KEY) === "claimed";
   } catch {
     return false;
   }
 }
 
-export function claimGift(levelId) {
+export function claimGift() {
   try {
-    window.localStorage.setItem(giftStorageKey(levelId), "claimed");
+    window.localStorage.setItem(STORAGE_KEY, "claimed");
   } catch {
     // The reveal still works when storage is unavailable.
   }
 }
 
-export function resetGift(levelId) {
+export function resetGift() {
   try {
-    window.localStorage.removeItem(giftStorageKey(levelId));
+    window.localStorage.removeItem(STORAGE_KEY);
   } catch {
     // Storage may be unavailable in private browsing modes.
   }

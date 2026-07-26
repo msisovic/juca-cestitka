@@ -9,14 +9,14 @@ import {
   hasClaimedGift,
   resetGift,
 } from "./gift.js";
-import { createLevel, destroyLevel, getLevelCount } from "./levels.js";
+import { createCourse } from "./course.js";
 import { accelerateHorizontal, boostHorizontal } from "./movement.js";
 import { formatTime, reachesFinish } from "./timer.js";
 
 await RAPIER.init({});
 
 const BALL_RADIUS = 1.28;
-const levelStart = new THREE.Vector3(0, BALL_RADIUS + 0.08, 7);
+const courseStart = new THREE.Vector3(0, BALL_RADIUS + 0.08, 7);
 const MAX_SPEED = 26;
 const CONTROL_ACCELERATION = 15;
 const CAMERA_OFFSET = new THREE.Vector3(0, 8.85, 13.2);
@@ -26,6 +26,11 @@ const timerElement = document.querySelector("#timer");
 const giftReveal = new GiftReveal();
 const shouldResetGift = import.meta.env.DEV
   || new URLSearchParams(window.location.search).has("resetGift");
+const initialUrl = new URL(window.location.href);
+if (initialUrl.searchParams.has("level")) {
+  initialUrl.searchParams.delete("level");
+  window.history.replaceState(null, "", initialUrl);
+}
 
 const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.25));
@@ -50,7 +55,7 @@ world.timestep = PHYSICS_TIMESTEP;
 
 const ballBody = world.createRigidBody(
   RAPIER.RigidBodyDesc.dynamic()
-    .setTranslation(levelStart.x, levelStart.y, levelStart.z)
+    .setTranslation(courseStart.x, courseStart.y, courseStart.z)
     .setLinearDamping(0.35)
     .setAngularDamping(0.72)
     .setCcdEnabled(true),
@@ -124,23 +129,23 @@ const pressed = new Set();
 const movement = new THREE.Vector3();
 const heading = new THREE.Vector3(0, 0, -1);
 const cameraTarget = new THREE.Vector3();
-const cameraAnchor = levelStart.clone();
-const previousPhysicsPosition = levelStart.clone();
-const currentPhysicsPosition = levelStart.clone();
-const renderPosition = levelStart.clone();
+const cameraAnchor = courseStart.clone();
+const previousPhysicsPosition = courseStart.clone();
+const currentPhysicsPosition = courseStart.clone();
+const renderPosition = courseStart.clone();
 const previousPhysicsRotation = new THREE.Quaternion();
 const currentPhysicsRotation = new THREE.Quaternion();
 const renderRotation = new THREE.Quaternion();
 const shadowRay = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: -1, z: 0 });
 let dogYaw = Math.PI;
 let physicsAccumulator = 0;
-let activeLevel;
+let course;
 let activeGiftPickup;
 let timerStartedAt = null;
 let timerElapsed = 0;
 let timerFinished = false;
 let timerReadyToStart = true;
-let levelAnimationTime = 0;
+let courseAnimationTime = 0;
 const occupiedBoostPads = new Set();
 
 const controlledKeys = new Set([
@@ -164,17 +169,6 @@ window.addEventListener("keydown", (event) => {
     ) giftReveal.dismiss();
     return;
   }
-  const requestedLevel = Number(event.code.replace("Digit", ""));
-  if (
-    event.code.startsWith("Digit")
-    && Number.isInteger(requestedLevel)
-    && requestedLevel < getLevelCount()
-  ) {
-    event.preventDefault();
-    if (!event.repeat) switchLevel(requestedLevel);
-    return;
-  }
-
   if (controlledKeys.has(event.code)) event.preventDefault();
   pressed.add(event.code);
   if (event.code === "KeyR") resetBall();
@@ -187,7 +181,7 @@ window.addEventListener("keyup", (event) => {
 window.addEventListener("blur", () => pressed.clear());
 
 function resetBall() {
-  const spawn = activeLevel?.start ?? levelStart;
+  const spawn = course?.start ?? courseStart;
   pressed.clear();
   ballBody.resetForces(true);
   ballBody.resetTorques(true);
@@ -219,11 +213,11 @@ function prepareTimer() {
   }
   timerStartedAt = null;
   timerReadyToStart = true;
-  timerElement.hidden = !activeLevel?.finish;
+  timerElement.hidden = !course?.finish;
 }
 
 function startTimer() {
-  if (!activeLevel?.finish || !timerReadyToStart) return;
+  if (!course?.finish || !timerReadyToStart) return;
   timerElapsed = 0;
   timerFinished = false;
   timerReadyToStart = false;
@@ -246,36 +240,20 @@ function updateTimer(time) {
   timerElement.textContent = formatTime(timerElapsed);
 }
 
-function switchLevel(levelId) {
-  if (activeLevel?.id === levelId) {
-    resetBall();
-    return;
-  }
-
-  if (activeLevel) {
-    giftReveal.dismiss();
-    scene.remove(activeLevel.group);
-    destroyLevel(world, activeLevel);
-  }
-
-  activeLevel = createLevel(world, levelId, BALL_RADIUS * 2);
-  levelAnimationTime = 0;
-  levelStart.copy(activeLevel.start);
+function loadCourse() {
+  course = createCourse(world, BALL_RADIUS * 2);
+  courseAnimationTime = 0;
+  courseStart.copy(course.start);
   activeGiftPickup = null;
-  if (activeLevel.finish && shouldResetGift) resetGift(activeLevel.id);
-  if (activeLevel.finish && !hasClaimedGift(activeLevel.id)) {
+  if (shouldResetGift) resetGift();
+  if (!hasClaimedGift()) {
     activeGiftPickup = createPresent();
-    activeGiftPickup.position.copy(activeLevel.finish.position);
+    activeGiftPickup.position.copy(course.finish.position);
     activeGiftPickup.position.y += 1.25;
     activeGiftPickup.userData.baseY = activeGiftPickup.position.y;
-    activeLevel.group.add(activeGiftPickup);
+    course.group.add(activeGiftPickup);
   }
-  scene.add(activeLevel.group);
-  document.querySelector("#level-name").textContent = `LEVEL ${activeLevel.id}: ${activeLevel.name}`;
-
-  const url = new URL(window.location.href);
-  url.searchParams.set("level", activeLevel.id);
-  window.history.replaceState(null, "", url);
+  scene.add(course.group);
   resetBall();
 }
 
@@ -325,7 +303,7 @@ function revealGift() {
   const position = new THREE.Vector3();
   activeGiftPickup.getWorldPosition(position);
   giftReveal.start(position, camera);
-  claimGift(activeLevel.id);
+  claimGift();
   activeGiftPickup.visible = false;
   pressed.clear();
   ballBody.setLinvel({ x: 0, y: 0, z: 0 }, true);
@@ -334,7 +312,7 @@ function revealGift() {
 
 function updateBoostPads() {
   const position = ballBody.translation();
-  for (const pad of activeLevel.boostPads ?? []) {
+  for (const pad of course.boostPads ?? []) {
     const offsetX = position.x - pad.position.x;
     const offsetZ = position.z - pad.position.z;
     const forwardDistance = offsetX * pad.direction.x + offsetZ * pad.direction.z;
@@ -366,11 +344,11 @@ function updateBoostPads() {
   }
 }
 
-function updateLevelAnimations(delta) {
-  levelAnimationTime += delta;
-  for (const obstacle of activeLevel.animatedBodies ?? []) {
+function updateCourseAnimations(delta) {
+  courseAnimationTime += delta;
+  for (const obstacle of course.animatedBodies ?? []) {
     const angle = obstacle.swingAngle * Math.sin(
-      levelAnimationTime * obstacle.angularSpeed + obstacle.phase,
+      courseAnimationTime * obstacle.angularSpeed + obstacle.phase,
     ) * obstacle.spinDirection;
     const halfSine = Math.sin(angle / 2);
     const rotation = {
@@ -436,8 +414,7 @@ function updateGiftPickup(time) {
 
 let previousTime = performance.now();
 
-const requestedLevel = Number(new URLSearchParams(window.location.search).get("level"));
-switchLevel(Number.isInteger(requestedLevel) ? requestedLevel : 0);
+loadCourse();
 
 function frame(time) {
   requestAnimationFrame(frame);
@@ -448,7 +425,7 @@ function frame(time) {
   while (physicsAccumulator >= PHYSICS_TIMESTEP) {
     previousPhysicsPosition.copy(currentPhysicsPosition);
     previousPhysicsRotation.copy(currentPhysicsRotation);
-    updateLevelAnimations(PHYSICS_TIMESTEP);
+    updateCourseAnimations(PHYSICS_TIMESTEP);
     updateControls(PHYSICS_TIMESTEP);
     updateBoostPads();
     world.step();
@@ -459,7 +436,7 @@ function frame(time) {
     currentPhysicsRotation.set(rotation.x, rotation.y, rotation.z, rotation.w);
     if (
       timerStartedAt !== null
-      && reachesFinish(previousPhysicsPosition, currentPhysicsPosition, activeLevel.finish)
+      && reachesFinish(previousPhysicsPosition, currentPhysicsPosition, course.finish)
     ) {
       stopTimer();
       revealGift();
@@ -467,7 +444,7 @@ function frame(time) {
     physicsAccumulator -= PHYSICS_TIMESTEP;
   }
 
-  if (ballBody.translation().y < activeLevel.fallY) resetBall();
+  if (ballBody.translation().y < course.fallY) resetBall();
 
   const interpolation = physicsAccumulator / PHYSICS_TIMESTEP;
   renderPosition.lerpVectors(previousPhysicsPosition, currentPhysicsPosition, interpolation);

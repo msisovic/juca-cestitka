@@ -205,7 +205,7 @@ function addCollider(
   friction = SURFACE_FRICTION,
   combineRule,
 ) {
-  if (!descriptor) throw new Error("Could not create level-piece collider.");
+  if (!descriptor) throw new Error("Could not create course-piece collider.");
   descriptor.setFriction(friction);
   if (combineRule !== undefined) {
     descriptor.setFrictionCombineRule(combineRule);
@@ -1138,7 +1138,7 @@ function createCurvedPiece(world, piece, squareSize, colors) {
   };
 }
 
-export function createLevelPiece(world, piece, squareSize, colors) {
+export function createCoursePiece(world, piece, squareSize, colors) {
   if (piece.type === "boostPad") {
     return createBoostPadPiece(piece, squareSize);
   }
@@ -1157,5 +1157,5 @@ export function createLevelPiece(world, piece, squareSize, colors) {
   if (piece.type === "spiral") {
     return createCurvedPiece(world, piece, squareSize, colors);
   }
-  throw new Error(`Unknown level piece: ${piece.type}`);
+  throw new Error(`Unknown course piece: ${piece.type}`);
 }

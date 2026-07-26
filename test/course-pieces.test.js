@@ -9,9 +9,9 @@ import {
   ramp,
   resolveBoundUnits,
   spiral,
-} from "../src/level-pieces.js";
+} from "../src/course-pieces.js";
 
-test("level-piece helpers create composable typed definitions", () => {
+test("course-piece helpers create composable typed definitions", () => {
   assert.equal(platform({ cells: [2, 3] }).type, "platform");
   const northRamp = ramp({ cells: [2, 4], rise: 1.1 });
   assert.equal(northRamp.type, "ramp");
