@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   boostPad,
+  hammer,
   platform,
   quarterTurn,
   ramp,
@@ -19,6 +20,10 @@ test("level-piece helpers create composable typed definitions", () => {
   assert.equal(pad.type, "boostPad");
   assert.equal(pad.direction, "west");
   assert.equal(pad.speed, 36);
+  const obstacle = hammer({ travelDirection: "north", spinDirection: -1 });
+  assert.equal(obstacle.type, "hammer");
+  assert.equal(obstacle.travelDirection, "north");
+  assert.equal(obstacle.spinDirection, -1);
 
   const turn = quarterTurn({ center: [3, 2], innerRadiusCells: 2 });
   assert.equal(turn.type, "quarterTurn");

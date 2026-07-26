@@ -129,6 +129,7 @@ let timerStartedAt = null;
 let timerElapsed = 0;
 let timerFinished = false;
 let timerReadyToStart = true;
+let levelAnimationTime = 0;
 const occupiedBoostPads = new Set();
 
 const controlledKeys = new Set([
@@ -238,6 +239,7 @@ function switchLevel(levelId) {
   }
 
   activeLevel = createLevel(world, levelId, BALL_RADIUS * 2);
+  levelAnimationTime = 0;
   levelStart.copy(activeLevel.start);
   scene.add(activeLevel.group);
   document.querySelector("#level-name").textContent = `LEVEL ${activeLevel.id}: ${activeLevel.name}`;
@@ -322,6 +324,24 @@ function updateBoostPads() {
   }
 }
 
+function updateLevelAnimations(delta) {
+  levelAnimationTime += delta;
+  for (const obstacle of activeLevel.animatedBodies ?? []) {
+    const angle = obstacle.swingAngle * Math.sin(
+      levelAnimationTime * obstacle.angularSpeed + obstacle.phase,
+    ) * obstacle.spinDirection;
+    const halfSine = Math.sin(angle / 2);
+    const rotation = {
+      x: obstacle.axis === "x" ? halfSine : 0,
+      y: 0,
+      z: obstacle.axis === "z" ? halfSine : 0,
+      w: Math.cos(angle / 2),
+    };
+    obstacle.body.setNextKinematicRotation(rotation);
+    obstacle.visual.quaternion.set(rotation.x, rotation.y, rotation.z, rotation.w);
+  }
+}
+
 function updateVisuals(delta, position, rotation) {
   ballVisual.position.set(position.x, position.y, position.z);
   ballVisual.quaternion.set(rotation.x, rotation.y, rotation.z, rotation.w);
@@ -379,6 +399,7 @@ function frame(time) {
   while (physicsAccumulator >= PHYSICS_TIMESTEP) {
     previousPhysicsPosition.copy(currentPhysicsPosition);
     previousPhysicsRotation.copy(currentPhysicsRotation);
+    updateLevelAnimations(PHYSICS_TIMESTEP);
     updateControls(PHYSICS_TIMESTEP);
     updateBoostPads();
     world.step();

@@ -54,6 +54,20 @@ export function boostPad(options) {
   };
 }
 
+export function hammer(options) {
+  return {
+    type: "hammer",
+    travelDirection: "north",
+    spinDirection: 1,
+    armLengthCells: 2.4,
+    swingAngle: Math.PI * 0.38,
+    period: 2.6,
+    phase: 0,
+    color: 0xf28c18,
+    ...options,
+  };
+}
+
 function rotateAroundY([x, y, z], angle) {
   const cosine = Math.cos(angle);
   const sine = Math.sin(angle);
@@ -619,6 +633,117 @@ function createBoostPadPiece(piece, squareSize) {
   };
 }
 
+function createHammerPiece(world, piece, squareSize) {
+  const travelDirection = CARDINAL_VECTORS[piece.travelDirection];
+  if (!travelDirection) {
+    throw new Error(`Unknown hammer travel direction: ${piece.travelDirection}`);
+  }
+  if (piece.spinDirection !== 1 && piece.spinDirection !== -1) {
+    throw new Error("Hammer spin direction must be 1 or -1.");
+  }
+  if (!Number.isFinite(piece.armLengthCells) || piece.armLengthCells <= 0) {
+    throw new Error("Hammer arm length must be positive.");
+  }
+  if (!Number.isFinite(piece.swingAngle) || piece.swingAngle <= 0 || piece.swingAngle >= Math.PI) {
+    throw new Error("Hammer swing angle must be between zero and 180 degrees.");
+  }
+  if (!Number.isFinite(piece.period) || piece.period <= 0) {
+    throw new Error("Hammer period must be positive.");
+  }
+
+  const ballRadius = squareSize / 2;
+  const armLength = piece.armLengthCells * squareSize;
+  const shaftThickness = squareSize * 0.14;
+  const headHalfLength = squareSize * 0.62;
+  const headRadius = squareSize * 0.32;
+  const spinsAroundZ = travelDirection[1] !== 0;
+  const position = {
+    x: piece.at[0] * squareSize,
+    y: piece.surfaceY + ballRadius + armLength,
+    z: piece.at[1] * squareSize,
+  };
+  const initialAngle = piece.swingAngle * Math.sin(piece.phase) * piece.spinDirection;
+  const initialRotation = {
+    x: spinsAroundZ ? 0 : Math.sin(initialAngle / 2),
+    y: 0,
+    z: spinsAroundZ ? Math.sin(initialAngle / 2) : 0,
+    w: Math.cos(initialAngle / 2),
+  };
+  const body = world.createRigidBody(
+    RAPIER.RigidBodyDesc.kinematicPositionBased()
+      .setTranslation(position.x, position.y, position.z)
+      .setRotation(initialRotation),
+  );
+
+  const addHammerCollider = (descriptor) => {
+    descriptor
+      .setFriction(0.15)
+      .setFrictionCombineRule(RAPIER.CoefficientCombineRule.Min)
+      .setRestitution(0.15)
+      .setRestitutionCombineRule(RAPIER.CoefficientCombineRule.Min);
+    world.createCollider(descriptor, body);
+  };
+  addHammerCollider(
+    RAPIER.ColliderDesc.cuboid(
+      shaftThickness / 2,
+      armLength / 2,
+      shaftThickness / 2,
+    ).setTranslation(0, -armLength / 2, 0),
+  );
+  const headRotation = spinsAroundZ
+    ? { x: 0, y: 0, z: Math.SQRT1_2, w: Math.SQRT1_2 }
+    : { x: Math.SQRT1_2, y: 0, z: 0, w: Math.SQRT1_2 };
+  addHammerCollider(
+    RAPIER.ColliderDesc.cylinder(headHalfLength, headRadius)
+      .setTranslation(0, -armLength, 0)
+      .setRotation(headRotation),
+  );
+
+  const visual = new THREE.Group();
+  visual.position.set(position.x, position.y, position.z);
+  visual.quaternion.set(
+    initialRotation.x,
+    initialRotation.y,
+    initialRotation.z,
+    initialRotation.w,
+  );
+  const orangeMaterial = new THREE.MeshLambertMaterial({ color: piece.color });
+  const darkOrangeMaterial = new THREE.MeshLambertMaterial({ color: 0xa9470b });
+  const shaft = new THREE.Mesh(
+    new THREE.BoxGeometry(shaftThickness, armLength, shaftThickness),
+    darkOrangeMaterial,
+  );
+  shaft.position.y = -armLength / 2;
+  visual.add(shaft);
+  const head = new THREE.Mesh(
+    new THREE.CylinderGeometry(headRadius, headRadius, headHalfLength * 2, 12),
+    orangeMaterial,
+  );
+  head.position.y = -armLength;
+  if (spinsAroundZ) head.rotation.z = Math.PI / 2;
+  else head.rotation.x = Math.PI / 2;
+  visual.add(head);
+  const pivot = new THREE.Mesh(
+    new THREE.SphereGeometry(squareSize * 0.22, 8, 6),
+    orangeMaterial,
+  );
+  visual.add(pivot);
+
+  return {
+    visual,
+    bodies: [body],
+    animatedBodies: [{
+      body,
+      visual,
+      axis: spinsAroundZ ? "z" : "x",
+      spinDirection: piece.spinDirection,
+      swingAngle: piece.swingAngle,
+      angularSpeed: Math.PI * 2 / piece.period,
+      phase: piece.phase,
+    }],
+  };
+}
+
 function createSpiralBoosts(
   piece,
   position,
@@ -967,6 +1092,9 @@ function createCurvedPiece(world, piece, squareSize, colors) {
 export function createLevelPiece(world, piece, squareSize, colors) {
   if (piece.type === "boostPad") {
     return createBoostPadPiece(piece, squareSize);
+  }
+  if (piece.type === "hammer") {
+    return createHammerPiece(world, piece, squareSize);
   }
   if (piece.type === "platform" || piece.type === "ramp") {
     return createRectanglePiece(world, piece, squareSize, colors);

@@ -2,6 +2,7 @@ import * as THREE from "three";
 import {
   boostPad,
   createLevelPiece,
+  hammer,
   platform,
   quarterTurn,
   ramp,
@@ -31,6 +32,7 @@ const FINAL_SPIRAL = spiral({
   },
 });
 const FINAL_TRACK_ELEVATION = FINAL_SPIRAL.elevation - FINAL_SPIRAL.drop;
+const FINAL_TRACK_SURFACE = FINAL_TRACK_ELEVATION + 0.5;
 const JUMP_RISE = 1.1;
 
 const LEVELS = [
@@ -55,7 +57,7 @@ const LEVELS = [
     fallY: FINAL_TRACK_ELEVATION - 5,
     colors: ["#fff9b8", "#f6c744", 0xaa6e16],
     finish: {
-      grid: [21.5, -23],
+      grid: [26.5, -48],
       y: FINAL_TRACK_ELEVATION + 0.51,
       radius: 2.3,
     },
@@ -173,6 +175,29 @@ const LEVELS = [
         at: [21.5, -23],
         elevation: FINAL_TRACK_ELEVATION,
       }),
+      platform({
+        cells: [4, 4],
+        at: [26, -23],
+        elevation: FINAL_TRACK_ELEVATION,
+      }),
+      platform({
+        cells: [3, 21],
+        at: [26.5, -35.5],
+        elevation: FINAL_TRACK_ELEVATION,
+      }),
+      ...[-28, -31.2, -34.4, -37.6, -40.8, -44].map((z, index) => hammer({
+        at: [26.5, z],
+        surfaceY: FINAL_TRACK_SURFACE,
+        travelDirection: "north",
+        spinDirection: index % 2 === 0 ? 1 : -1,
+        phase: 0,
+        period: 2.6,
+      })),
+      platform({
+        cells: [5, 4],
+        at: [26.5, -48],
+        elevation: FINAL_TRACK_ELEVATION,
+      }),
     ],
   },
 ];
@@ -213,6 +238,7 @@ export function createLevel(world, levelId, squareSize) {
   const group = new THREE.Group();
   const bodies = [];
   const boostPads = [];
+  const animatedBodies = [];
 
   for (const pieceDefinition of definition.pieces) {
     const piece = createLevelPiece(
@@ -224,6 +250,7 @@ export function createLevel(world, levelId, squareSize) {
     group.add(piece.visual);
     bodies.push(...piece.bodies);
     boostPads.push(...(piece.boostPads ?? []));
+    animatedBodies.push(...(piece.animatedBodies ?? []));
   }
 
   const finish = definition.finish
@@ -246,6 +273,7 @@ export function createLevel(world, levelId, squareSize) {
     group,
     bodies,
     boostPads,
+    animatedBodies,
   };
 }
 
