@@ -573,7 +573,7 @@ function createBoostPadPiece(piece, squareSize) {
 
   const base = new THREE.Mesh(
     new THREE.PlaneGeometry(width * 0.92, depth * 0.92),
-    new THREE.MeshBasicMaterial({ color: 0xe63b2e, side: THREE.DoubleSide }),
+    new THREE.MeshBasicMaterial({ color: 0x28b84f, side: THREE.DoubleSide }),
   );
   base.rotation.x = -Math.PI / 2;
   group.add(base);
@@ -621,7 +621,6 @@ function createBoostPadPiece(piece, squareSize) {
 
 function createSpiralBoosts(
   piece,
-  squareSize,
   position,
   height,
   innerRadius,
@@ -642,21 +641,46 @@ function createSpiralBoosts(
 
   const sweepMagnitude = Math.abs(piece.sweepAngle);
   const sweepSign = Math.sign(piece.sweepAngle);
+  const angleStep = piece.sweepAngle / piece.segments;
+  const segmentAngle = Math.abs(angleStep);
+  const padSegmentCount = piece.boosts.padSegments ?? 2;
+  if (!Number.isInteger(padSegmentCount) || padSegmentCount < 2 || padSegmentCount % 2 !== 0) {
+    throw new Error("Spiral boost pads must cover a positive, even number of segments.");
+  }
   const centerRadius = (innerRadius + outerRadius) / 2;
-  const halfLength = squareSize * 0.45;
+  const halfLength = centerRadius * segmentAngle * padSegmentCount / 2;
   const halfWidth = (outerRadius - innerRadius) * 0.45;
   const radialMargin = (outerRadius - innerRadius) * 0.05;
-  const baseMaterial = new THREE.MeshBasicMaterial({
-    color: 0xe63b2e,
+
+  const canvas = document.createElement("canvas");
+  canvas.width = 64;
+  canvas.height = 64;
+  const context = canvas.getContext("2d");
+  context.fillStyle = "#28b84f";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.fillStyle = "#ffffff";
+  for (const offsetY of [0, 30]) {
+    context.beginPath();
+    context.moveTo(32, 4 + offsetY);
+    context.lineTo(25, 26 + offsetY);
+    context.lineTo(39, 26 + offsetY);
+    context.closePath();
+    context.fill();
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.magFilter = THREE.NearestFilter;
+  texture.minFilter = THREE.NearestFilter;
+  const material = new THREE.MeshBasicMaterial({
+    map: texture,
     side: THREE.DoubleSide,
+    polygonOffset: true,
+    polygonOffsetFactor: -2,
+    polygonOffsetUnits: -2,
   });
-  const arrowMaterial = new THREE.MeshBasicMaterial({
-    color: 0xffffff,
-    side: THREE.DoubleSide,
-  });
-  const point = (angle, radius, progress, lift = 0.018) => [
+  const point = (angle, radius, progress) => [
     position[0] + Math.cos(angle) * radius,
-    position[1] + height / 2 - piece.drop * progress + lift,
+    position[1] + height / 2 - piece.drop * progress,
     position[2] + Math.sin(angle) * radius,
   ];
 
@@ -665,49 +689,52 @@ function createSpiralBoosts(
     traveledAngle < sweepMagnitude - 1e-8;
     traveledAngle += intervalAngle
   ) {
-    const progress = traveledAngle / sweepMagnitude;
-    const angle = piece.startAngle + sweepSign * traveledAngle;
-    const halfAngle = halfLength / centerRadius;
-    const startAngle = angle - sweepSign * halfAngle;
-    const endAngle = angle + sweepSign * halfAngle;
-    const startProgress = progress - halfAngle / sweepMagnitude;
-    const endProgress = progress + halfAngle / sweepMagnitude;
+    const centerSegment = Math.round(traveledAngle / segmentAngle);
+    const startSegment = centerSegment - padSegmentCount / 2;
+    const endSegment = startSegment + padSegmentCount;
+    if (startSegment < 0 || endSegment > piece.segments) continue;
+
+    const actualTraveledAngle = centerSegment * segmentAngle;
+    const progress = actualTraveledAngle / sweepMagnitude;
+    const angle = piece.startAngle + sweepSign * actualTraveledAngle;
     const padInnerRadius = innerRadius + radialMargin;
     const padOuterRadius = outerRadius - radialMargin;
-    const baseGeometry = new THREE.BufferGeometry();
-    baseGeometry.setAttribute("position", new THREE.Float32BufferAttribute([
-      ...point(startAngle, padInnerRadius, startProgress),
-      ...point(endAngle, padInnerRadius, endProgress),
-      ...point(endAngle, padOuterRadius, endProgress),
-      ...point(startAngle, padOuterRadius, startProgress),
-    ], 3));
-    baseGeometry.setIndex([0, 1, 2, 0, 2, 3]);
-    baseGeometry.computeVertexNormals();
-    group.add(new THREE.Mesh(baseGeometry, baseMaterial));
-
-    const surfacePoint = (travelDistance, radialDistance) => {
-      const pointAngle = angle + sweepSign * travelDistance / centerRadius;
-      const pointProgress = progress
-        + travelDistance / (centerRadius * sweepMagnitude);
-      return point(
-        pointAngle,
-        centerRadius + radialDistance,
-        pointProgress,
-        0.028,
+    const positions = [];
+    const uvs = [];
+    const indices = [];
+    for (let segment = startSegment; segment < endSegment; segment += 1) {
+      const localSegment = segment - startSegment;
+      const startAngle = piece.startAngle + angleStep * segment;
+      const endAngle = startAngle + angleStep;
+      const startProgress = segment / piece.segments;
+      const endProgress = (segment + 1) / piece.segments;
+      const vertexOffset = positions.length / 3;
+      positions.push(
+        ...point(startAngle, padInnerRadius, startProgress),
+        ...point(endAngle, padInnerRadius, endProgress),
+        ...point(endAngle, padOuterRadius, endProgress),
+        ...point(startAngle, padOuterRadius, startProgress),
       );
-    };
-    for (const offset of [-0.2, 0.2]) {
-      const centerDistance = offset * squareSize;
-      const arrowGeometry = new THREE.BufferGeometry();
-      arrowGeometry.setAttribute("position", new THREE.Float32BufferAttribute([
-        ...surfacePoint(centerDistance + 0.18 * squareSize, 0),
-        ...surfacePoint(centerDistance - 0.14 * squareSize, 0.22 * squareSize),
-        ...surfacePoint(centerDistance - 0.14 * squareSize, -0.22 * squareSize),
-      ], 3));
-      arrowGeometry.setIndex([0, 1, 2]);
-      arrowGeometry.computeVertexNormals();
-      group.add(new THREE.Mesh(arrowGeometry, arrowMaterial));
+      const startV = localSegment / padSegmentCount;
+      const endV = (localSegment + 1) / padSegmentCount;
+      uvs.push(0, startV, 0, endV, 1, endV, 1, startV);
+      indices.push(
+        vertexOffset,
+        vertexOffset + 1,
+        vertexOffset + 2,
+        vertexOffset,
+        vertexOffset + 2,
+        vertexOffset + 3,
+      );
     }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+    geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+    geometry.setIndex(indices);
+    geometry.computeVertexNormals();
+    const decal = new THREE.Mesh(geometry, material);
+    decal.renderOrder = 1;
+    group.add(decal);
 
     boostPads.push({
       position: {
@@ -922,7 +949,6 @@ function createCurvedPiece(world, piece, squareSize, colors) {
   const spiralBoosts = piece.type === "spiral"
     ? createSpiralBoosts(
       piece,
-      squareSize,
       position,
       height,
       innerRadius,
