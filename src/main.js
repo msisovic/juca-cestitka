@@ -11,6 +11,11 @@ import {
   resetGift,
 } from "./gift.js";
 import { isCrashLanding } from "./impact.js";
+import {
+  hasSeenIntro,
+  IntroCutscene,
+  resetIntro,
+} from "./intro.js";
 import { createCourse } from "./course.js";
 import {
   accelerateHorizontal,
@@ -18,6 +23,7 @@ import {
   rollingAngularVelocity,
 } from "./movement.js";
 import { formatTime, reachesFinish } from "./timer.js";
+import soundtrackUrl from "../soundtrack-loop.mp3?url";
 
 await RAPIER.init({});
 
@@ -32,7 +38,13 @@ const CRASH_DURATION = 0.9;
 const SKY_COLOR = 0x67c8ff;
 const timerElement = document.querySelector("#timer");
 const giftReveal = new GiftReveal();
-const shouldResetGift = import.meta.env.DEV
+const introCutscene = new IntroCutscene();
+const soundtrack = new Audio(soundtrackUrl);
+soundtrack.loop = true;
+soundtrack.preload = "none";
+soundtrack.volume = 0.5;
+let soundtrackStarted = false;
+const shouldResetProgress = import.meta.env.DEV
   || new URLSearchParams(window.location.search).has("resetGift");
 const initialUrl = new URL(window.location.href);
 if (initialUrl.searchParams.has("level")) {
@@ -208,13 +220,26 @@ const controlledKeys = new Set([
   "KeyR",
 ]);
 
+function startSoundtrack() {
+  if (soundtrackStarted) return;
+  soundtrackStarted = true;
+  soundtrack.play().catch(() => {
+    soundtrackStarted = false;
+  });
+}
+
+window.addEventListener("pointerdown", startSoundtrack, { passive: true });
+
 window.addEventListener("keydown", (event) => {
+  startSoundtrack();
+  if (introCutscene.active) {
+    event.preventDefault();
+    if (!event.repeat) introCutscene.dismiss();
+    return;
+  }
   if (giftReveal.active) {
     event.preventDefault();
-    if (
-      giftReveal.elapsed > 2
-      && ["Enter", "Space", "Escape"].includes(event.code)
-    ) giftReveal.dismiss();
+    if (giftReveal.elapsed > 2 && !event.repeat) giftReveal.dismiss();
     return;
   }
   if (controlledKeys.has(event.code)) event.preventDefault();
@@ -301,7 +326,10 @@ function loadCourse() {
   courseAnimationTime = 0;
   courseStart.copy(course.start);
   activeGiftPickup = null;
-  if (shouldResetGift) resetGift();
+  if (shouldResetProgress) {
+    resetGift();
+    resetIntro();
+  }
   if (!hasClaimedGift()) {
     activeGiftPickup = createPresent();
     activeGiftPickup.position.copy(course.finish.position);
@@ -311,6 +339,7 @@ function loadCourse() {
   }
   scene.add(course.group);
   resetBall();
+  if (!hasSeenIntro()) introCutscene.start();
 }
 
 function shortestAngle(from, to) {
@@ -549,6 +578,12 @@ function updateCamera(delta, position) {
   camera.lookAt(cameraAnchor.x, cameraAnchor.y + 0.15, cameraAnchor.z);
 }
 
+function updateIntroCamera(position) {
+  camera.position.set(position.x + 5, position.y + 2.6, position.z - 5.5);
+  camera.lookAt(position.x + 3, position.y + 0.15, position.z);
+  dog.rotation.set(0, Math.PI, 0);
+}
+
 function updateGiftPickup(time) {
   if (!activeGiftPickup?.visible) return;
   activeGiftPickup.rotation.y = time * 0.0012;
@@ -564,10 +599,14 @@ function frame(time) {
   requestAnimationFrame(frame);
   const delta = Math.min((time - previousTime) / 1000, MAX_FRAME_DELTA);
   previousTime = time;
-  if (crashActive) physicsAccumulator = 0;
+  if (crashActive || introCutscene.active) physicsAccumulator = 0;
   else physicsAccumulator += delta;
 
-  while (!crashActive && physicsAccumulator >= PHYSICS_TIMESTEP) {
+  while (
+    !crashActive
+    && !introCutscene.active
+    && physicsAccumulator >= PHYSICS_TIMESTEP
+  ) {
     previousPhysicsPosition.copy(currentPhysicsPosition);
     previousPhysicsRotation.copy(currentPhysicsRotation);
     updateCourseAnimations(PHYSICS_TIMESTEP);
@@ -618,7 +657,11 @@ function frame(time) {
     physicsAccumulator -= PHYSICS_TIMESTEP;
   }
 
-  if (!crashActive && ballBody.translation().y < course.fallY) {
+  if (
+    !crashActive
+    && !introCutscene.active
+    && ballBody.translation().y < course.fallY
+  ) {
     resetBall({ fromFall: true });
   }
   updateCrashEffect(delta);
@@ -631,7 +674,8 @@ function frame(time) {
     interpolation,
   );
   updateVisuals(delta, renderPosition, renderRotation);
-  updateCamera(delta, renderPosition);
+  if (introCutscene.active) updateIntroCamera(renderPosition);
+  else updateCamera(delta, renderPosition);
   updateTimer(time);
   updateGiftPickup(time);
   giftReveal.update(delta);
