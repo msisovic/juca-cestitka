@@ -10,7 +10,11 @@ import {
   resetGift,
 } from "./gift.js";
 import { createCourse } from "./course.js";
-import { accelerateHorizontal, boostHorizontal } from "./movement.js";
+import {
+  accelerateHorizontal,
+  boostHorizontal,
+  rollingAngularVelocity,
+} from "./movement.js";
 import { formatTime, reachesFinish } from "./timer.js";
 
 await RAPIER.init({});
@@ -22,6 +26,7 @@ const CONTROL_ACCELERATION = 15;
 const CAMERA_OFFSET = new THREE.Vector3(0, 8.85, 13.2);
 const PHYSICS_TIMESTEP = 1 / 120;
 const MAX_FRAME_DELTA = 1 / 20;
+const SKY_COLOR = 0x67c8ff;
 const timerElement = document.querySelector("#timer");
 const giftReveal = new GiftReveal();
 const shouldResetGift = import.meta.env.DEV
@@ -39,8 +44,8 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 document.querySelector("#app").appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0xad0f8f);
-scene.fog = new THREE.Fog(0xad0f8f, 35, 84);
+scene.background = new THREE.Color(SKY_COLOR);
+scene.fog = new THREE.Fog(SKY_COLOR, 35, 84);
 
 const camera = new THREE.PerspectiveCamera(52, window.innerWidth / window.innerHeight, 0.1, 120);
 camera.position.set(0, 6.2, 15);
@@ -60,7 +65,7 @@ const ballBody = world.createRigidBody(
     .setAngularDamping(0.72)
     .setCcdEnabled(true),
 );
-world.createCollider(
+const ballCollider = world.createCollider(
   RAPIER.ColliderDesc.ball(BALL_RADIUS)
     .setDensity(0.7)
     .setFriction(1.45)
@@ -133,6 +138,9 @@ const cameraAnchor = courseStart.clone();
 const previousPhysicsPosition = courseStart.clone();
 const currentPhysicsPosition = courseStart.clone();
 const renderPosition = courseStart.clone();
+const railClosestPoint = new THREE.Vector3();
+const railNormal = new THREE.Vector3();
+const railOffset = new THREE.Vector3();
 const previousPhysicsRotation = new THREE.Quaternion();
 const currentPhysicsRotation = new THREE.Quaternion();
 const renderRotation = new THREE.Quaternion();
@@ -261,6 +269,27 @@ function shortestAngle(from, to) {
   return Math.atan2(Math.sin(to - from), Math.cos(to - from));
 }
 
+function getRailSurfaceNormal(position) {
+  for (const rail of course.rails) {
+    let touching = false;
+    world.contactPair(ballCollider, rail.collider, (manifold) => {
+      if (manifold.numSolverContacts() > 0) touching = true;
+    });
+    if (!touching) continue;
+
+    railOffset.set(position.x, position.y, position.z).sub(rail.center);
+    const axisDistance = THREE.MathUtils.clamp(
+      railOffset.dot(rail.axis),
+      -rail.halfLength,
+      rail.halfLength,
+    );
+    railClosestPoint.copy(rail.axis).multiplyScalar(axisDistance).add(rail.center);
+    railNormal.set(position.x, position.y, position.z).sub(railClosestPoint);
+    if (railNormal.lengthSq() > 1e-8) return railNormal.normalize();
+  }
+  return null;
+}
+
 function updateControls(delta) {
   if (giftReveal.active) return;
   const x = Number(pressed.has("KeyD") || pressed.has("ArrowRight"))
@@ -271,8 +300,10 @@ function updateControls(delta) {
   movement.set(x, 0, -z);
 
   const velocity = ballBody.linvel();
+  let rollingVelocity = velocity;
+  const hasInput = movement.lengthSq() > 0;
 
-  if (movement.lengthSq() > 0) {
+  if (hasInput) {
     startTimer();
     movement.normalize();
     const nextVelocity = accelerateHorizontal(
@@ -282,19 +313,35 @@ function updateControls(delta) {
       delta,
       MAX_SPEED,
     );
-    ballBody.setLinvel({ x: nextVelocity.x, y: velocity.y, z: nextVelocity.z }, true);
+    rollingVelocity = { x: nextVelocity.x, y: velocity.y, z: nextVelocity.z };
+    ballBody.setLinvel(rollingVelocity, true);
 
+    heading.lerp(movement, 1 - Math.exp(-delta * 7)).normalize();
+  }
+
+  const surfaceNormal = getRailSurfaceNormal(ballBody.translation());
+  if (surfaceNormal) {
+    const angular = ballBody.angvel();
+    const twist = (
+      angular.x * surfaceNormal.x
+      + angular.y * surfaceNormal.y
+      + angular.z * surfaceNormal.z
+    ) * Math.exp(-4 * delta);
+    ballBody.setAngvel(
+      rollingAngularVelocity(rollingVelocity, surfaceNormal, BALL_RADIUS, twist),
+      true,
+    );
+  } else if (hasInput) {
     // Match the sphere's spin to its linear motion so traction cannot fight steering.
     const angular = ballBody.angvel();
     ballBody.setAngvel(
       {
-        x: nextVelocity.z / BALL_RADIUS,
+        x: rollingVelocity.z / BALL_RADIUS,
         y: angular.y * Math.exp(-4 * delta),
-        z: -nextVelocity.x / BALL_RADIUS,
+        z: -rollingVelocity.x / BALL_RADIUS,
       },
       true,
     );
-    heading.lerp(movement, 1 - Math.exp(-delta * 7)).normalize();
   }
 }
 

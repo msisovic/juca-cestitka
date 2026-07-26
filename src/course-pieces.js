@@ -210,7 +210,7 @@ function addCollider(
   if (combineRule !== undefined) {
     descriptor.setFrictionCombineRule(combineRule);
   }
-  world.createCollider(descriptor, body);
+  return world.createCollider(descriptor, body);
 }
 
 function addWallCollider(world, body, height, createDescriptor) {
@@ -783,14 +783,23 @@ function createRailPiece(world, piece, squareSize) {
   const rotation = runsAlongX
     ? { x: 0, y: 0, z: Math.SQRT1_2, w: Math.SQRT1_2 }
     : { x: Math.SQRT1_2, y: 0, z: 0, w: Math.SQRT1_2 };
-  addCollider(
+  const collider = addCollider(
     world,
     body,
     RAPIER.ColliderDesc.cylinder(length / 2, radius).setRotation(rotation),
     SURFACE_FRICTION,
   );
 
-  return { visual, bodies: [body] };
+  return {
+    visual,
+    bodies: [body],
+    rails: [{
+      collider,
+      center: new THREE.Vector3(...position),
+      axis: new THREE.Vector3(direction[0], 0, direction[1]),
+      halfLength: length / 2,
+    }],
+  };
 }
 
 function createSpiralBoosts(

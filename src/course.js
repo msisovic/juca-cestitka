@@ -39,7 +39,7 @@ const JUMP_RISE = 1.1;
 const COURSE = {
     start: { grid: [0, 6], y: 1.36 },
     fallY: FINAL_TRACK_ELEVATION - 5,
-    colors: ["#fff9b8", "#f6c744", 0xaa6e16],
+    colors: ["#ff79b5", "#f6c744", 0xa62c68],
     finish: {
       grid: [24.5, -67],
       y: FINAL_TRACK_ELEVATION + 0.51,
@@ -232,6 +232,7 @@ export function createCourse(world, squareSize) {
   const bodies = [];
   const boostPads = [];
   const animatedBodies = [];
+  const rails = [];
 
   for (const pieceDefinition of definition.pieces) {
     const piece = createCoursePiece(
@@ -244,6 +245,7 @@ export function createCourse(world, squareSize) {
     bodies.push(...piece.bodies);
     boostPads.push(...(piece.boostPads ?? []));
     animatedBodies.push(...(piece.animatedBodies ?? []));
+    rails.push(...(piece.rails ?? []));
   }
 
   const finish = definition.finish
@@ -265,5 +267,6 @@ export function createCourse(world, squareSize) {
     bodies,
     boostPads,
     animatedBodies,
+    rails,
   };
 }

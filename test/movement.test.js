@@ -1,6 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { accelerateHorizontal, boostHorizontal } from "../src/movement.js";
+import {
+  accelerateHorizontal,
+  boostHorizontal,
+  rollingAngularVelocity,
+} from "../src/movement.js";
 
 test("opposing input slows and reverses velocity at a fixed rate", () => {
   let velocity = { x: 0, z: -12 };
@@ -81,4 +85,21 @@ test("boost pads establish a minimum speed without removing lateral momentum", (
     boostHorizontal({ x: -60, z: 3 }, { x: -1, z: 0 }, 52),
     { x: -60, z: 3 },
   );
+});
+
+test("rolling spin follows the local surface normal", () => {
+  assert.deepEqual(
+    rollingAngularVelocity({ x: 4, y: 0, z: -6 }, { x: 0, y: 1, z: 0 }, 2),
+    { x: -3, y: 0, z: -2 },
+  );
+
+  const axis = Math.SQRT1_2;
+  const tilted = rollingAngularVelocity(
+    { x: 0, y: 0, z: -6 },
+    { x: axis, y: axis, z: 0 },
+    2,
+  );
+  assert.ok(Math.abs(tilted.x + 3 * axis) < 1e-10);
+  assert.ok(Math.abs(tilted.y - 3 * axis) < 1e-10);
+  assert.equal(tilted.z, 0);
 });

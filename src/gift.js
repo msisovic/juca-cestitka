@@ -225,7 +225,7 @@ export class GiftReveal {
     this.scene.add(light);
     this.backdrop = new THREE.Mesh(
       new THREE.PlaneGeometry(30, 18),
-      new THREE.MeshBasicMaterial({ color: 0x4d003b, transparent: true, opacity: 0 }),
+      new THREE.MeshBasicMaterial({ color: 0x1976b8, transparent: true, opacity: 0 }),
     );
     this.backdrop.position.z = -3;
     this.scene.add(this.backdrop);

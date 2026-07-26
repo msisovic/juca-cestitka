@@ -22,3 +22,23 @@ export function boostHorizontal(velocity, direction, minimumForwardSpeed) {
     z: velocity.z + direction.z * addedSpeed,
   };
 }
+
+export function rollingAngularVelocity(velocity, surfaceNormal, radius, twist = 0) {
+  const normalVelocity = velocity.x * surfaceNormal.x
+    + velocity.y * surfaceNormal.y
+    + velocity.z * surfaceNormal.z;
+  const tangent = {
+    x: velocity.x - surfaceNormal.x * normalVelocity,
+    y: velocity.y - surfaceNormal.y * normalVelocity,
+    z: velocity.z - surfaceNormal.z * normalVelocity,
+  };
+
+  return {
+    x: (surfaceNormal.y * tangent.z - surfaceNormal.z * tangent.y) / radius
+      + surfaceNormal.x * twist,
+    y: (surfaceNormal.z * tangent.x - surfaceNormal.x * tangent.z) / radius
+      + surfaceNormal.y * twist,
+    z: (surfaceNormal.x * tangent.y - surfaceNormal.y * tangent.x) / radius
+      + surfaceNormal.z * twist,
+  };
+}
