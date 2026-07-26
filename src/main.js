@@ -2,6 +2,13 @@ import * as THREE from "three";
 import RAPIER from "@dimforge/rapier3d-compat";
 import "./style.css";
 import { createBostonTerrier } from "./dog.js";
+import {
+  claimGift,
+  createPresent,
+  GiftReveal,
+  hasClaimedGift,
+  resetGift,
+} from "./gift.js";
 import { createLevel, destroyLevel, getLevelCount } from "./levels.js";
 import { accelerateHorizontal, boostHorizontal } from "./movement.js";
 import { formatTime, reachesFinish } from "./timer.js";
@@ -16,6 +23,9 @@ const CAMERA_OFFSET = new THREE.Vector3(0, 8.85, 13.2);
 const PHYSICS_TIMESTEP = 1 / 120;
 const MAX_FRAME_DELTA = 1 / 20;
 const timerElement = document.querySelector("#timer");
+const giftReveal = new GiftReveal();
+const shouldResetGift = import.meta.env.DEV
+  || new URLSearchParams(window.location.search).has("resetGift");
 
 const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.25));
@@ -125,6 +135,7 @@ const shadowRay = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: -1, z: 0 });
 let dogYaw = Math.PI;
 let physicsAccumulator = 0;
 let activeLevel;
+let activeGiftPickup;
 let timerStartedAt = null;
 let timerElapsed = 0;
 let timerFinished = false;
@@ -145,6 +156,14 @@ const controlledKeys = new Set([
 ]);
 
 window.addEventListener("keydown", (event) => {
+  if (giftReveal.active) {
+    event.preventDefault();
+    if (
+      giftReveal.elapsed > 2
+      && ["Enter", "Space", "Escape"].includes(event.code)
+    ) giftReveal.dismiss();
+    return;
+  }
   const requestedLevel = Number(event.code.replace("Digit", ""));
   if (
     event.code.startsWith("Digit")
@@ -234,6 +253,7 @@ function switchLevel(levelId) {
   }
 
   if (activeLevel) {
+    giftReveal.dismiss();
     scene.remove(activeLevel.group);
     destroyLevel(world, activeLevel);
   }
@@ -241,6 +261,15 @@ function switchLevel(levelId) {
   activeLevel = createLevel(world, levelId, BALL_RADIUS * 2);
   levelAnimationTime = 0;
   levelStart.copy(activeLevel.start);
+  activeGiftPickup = null;
+  if (activeLevel.finish && shouldResetGift) resetGift(activeLevel.id);
+  if (activeLevel.finish && !hasClaimedGift(activeLevel.id)) {
+    activeGiftPickup = createPresent();
+    activeGiftPickup.position.copy(activeLevel.finish.position);
+    activeGiftPickup.position.y += 1.25;
+    activeGiftPickup.userData.baseY = activeGiftPickup.position.y;
+    activeLevel.group.add(activeGiftPickup);
+  }
   scene.add(activeLevel.group);
   document.querySelector("#level-name").textContent = `LEVEL ${activeLevel.id}: ${activeLevel.name}`;
 
@@ -255,6 +284,7 @@ function shortestAngle(from, to) {
 }
 
 function updateControls(delta) {
+  if (giftReveal.active) return;
   const x = Number(pressed.has("KeyD") || pressed.has("ArrowRight"))
     - Number(pressed.has("KeyA") || pressed.has("ArrowLeft"));
   const z = Number(pressed.has("KeyW") || pressed.has("ArrowUp"))
@@ -288,6 +318,18 @@ function updateControls(delta) {
     );
     heading.lerp(movement, 1 - Math.exp(-delta * 7)).normalize();
   }
+}
+
+function revealGift() {
+  if (!activeGiftPickup?.visible || giftReveal.active) return;
+  const position = new THREE.Vector3();
+  activeGiftPickup.getWorldPosition(position);
+  giftReveal.start(position, camera);
+  claimGift(activeLevel.id);
+  activeGiftPickup.visible = false;
+  pressed.clear();
+  ballBody.setLinvel({ x: 0, y: 0, z: 0 }, true);
+  ballBody.setAngvel({ x: 0, y: 0, z: 0 }, true);
 }
 
 function updateBoostPads() {
@@ -385,6 +427,13 @@ function updateCamera(delta, position) {
   camera.lookAt(cameraAnchor.x, cameraAnchor.y + 0.15, cameraAnchor.z);
 }
 
+function updateGiftPickup(time) {
+  if (!activeGiftPickup?.visible) return;
+  activeGiftPickup.rotation.y = time * 0.0012;
+  activeGiftPickup.position.y = activeGiftPickup.userData.baseY
+    + Math.sin(time * 0.0025) * 0.18;
+}
+
 let previousTime = performance.now();
 
 const requestedLevel = Number(new URLSearchParams(window.location.search).get("level"));
@@ -413,6 +462,7 @@ function frame(time) {
       && reachesFinish(previousPhysicsPosition, currentPhysicsPosition, activeLevel.finish)
     ) {
       stopTimer();
+      revealGift();
     }
     physicsAccumulator -= PHYSICS_TIMESTEP;
   }
@@ -429,8 +479,16 @@ function frame(time) {
   updateVisuals(delta, renderPosition, renderRotation);
   updateCamera(delta, renderPosition);
   updateTimer(time);
+  updateGiftPickup(time);
+  giftReveal.update(delta);
 
   renderer.render(scene, camera);
+  if (giftReveal.active) {
+    renderer.autoClear = false;
+    renderer.clearDepth();
+    renderer.render(giftReveal.scene, giftReveal.camera);
+    renderer.autoClear = true;
+  }
 }
 
 requestAnimationFrame(frame);
@@ -440,4 +498,5 @@ window.addEventListener("resize", () => {
   camera.updateProjectionMatrix();
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.25));
   renderer.setSize(window.innerWidth, window.innerHeight);
+  giftReveal.resize(window.innerWidth, window.innerHeight);
 });
